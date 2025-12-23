@@ -87,15 +87,65 @@ try
         Console.WriteLine($"    WARNING: {ex.Message} (non-fatal)");
     }
 
-    // Step 7: Create SO_SalesOrder_bus
+    // Step 6b: Set program context (might be required before creating business objects)
+    Console.WriteLine("[6b] Setting program context...");
+    try
+    {
+        int taskId = session.nLookupTask("SO_SalesOrder_ui");
+        Console.WriteLine($"    nLookupTask('SO_SalesOrder_ui') returned: {taskId}");
+        if (taskId != 0)
+        {
+            int progRet = session.nSetProgram(taskId);
+            Console.WriteLine($"    nSetProgram returned: {progRet}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"    WARNING: {ex.Message} (non-fatal)");
+    }
+
+    // Step 7: Create SO_SalesOrder_bus - try different approaches
     Console.WriteLine("[7] Creating SO_SalesOrder_bus...");
-    salesOrder = pvx.NewObject("SO_SalesOrder_bus", session);
+    
+    // First, list available Sales Order objects
+    Console.WriteLine("    Trying to discover available SO objects...");
+    string[] objectsToTry = new[] {
+        "SO_SalesOrder_bus",
+        "SO_SalesOrder_Bus", 
+        "SO_SalesOrder_BUS",
+        "SalesOrder_bus",
+        "SO_Order_bus"
+    };
+    
+    foreach (var objName in objectsToTry)
+    {
+        Console.WriteLine($"    Trying: {objName}...");
+        try
+        {
+            salesOrder = pvx.NewObject(objName, session);
+            if (salesOrder != null)
+            {
+                Console.WriteLine($"    SUCCESS with: {objName}");
+                break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"    Failed: {ex.Message}");
+            salesOrder = null;
+        }
+    }
+    
     if (salesOrder == null)
     {
-        Console.WriteLine("FAILED: NewObject returned null");
+        Console.WriteLine("FAILED: Could not create any Sales Order object");
+        Console.WriteLine();
+        Console.WriteLine("This might indicate:");
+        Console.WriteLine("  - S/O module not licensed for this company");
+        Console.WriteLine("  - User doesn't have Sales Order permissions");
+        Console.WriteLine("  - Business object name is different in this Sage version");
         return;
     }
-    Console.WriteLine("    SUCCESS: SO_SalesOrder_bus created");
 
     // Step 8: Get next order number
     Console.WriteLine("[8] Getting next sales order number...");
