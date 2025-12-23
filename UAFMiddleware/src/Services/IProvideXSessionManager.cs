@@ -4,6 +4,7 @@ public interface IProvideXSessionManager
 {
     Task<SessionWrapper> GetSessionAsync(CancellationToken cancellationToken = default);
     void ReleaseSession(SessionWrapper session);
+    void InvalidateSession(SessionWrapper session);
     Task<bool> IsHealthyAsync();
     int AvailableSessions { get; }
     int ActiveSessions { get; }

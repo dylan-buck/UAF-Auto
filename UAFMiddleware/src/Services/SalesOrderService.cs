@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Runtime.InteropServices;
 using UAFMiddleware.Models;
 
@@ -23,6 +22,7 @@ public class SalesOrderService : ISalesOrderService
     {
         SessionWrapper? session = null;
         dynamic? salesOrder = null;
+        bool sessionCorrupted = false;
         
         try
         {
@@ -32,7 +32,22 @@ public class SalesOrderService : ISalesOrderService
 
             // Get a session from the pool
             session = await _sessionManager.GetSessionAsync(cancellationToken);
-            _logger.LogDebug("Got session {SessionId}", session.SessionId);
+            _logger.LogInformation("Got session {SessionId} (created: {Created}, lastUsed: {LastUsed})", 
+                session.SessionId, session.CreatedAt, session.LastUsed);
+
+            // Verify session is still valid
+            try
+            {
+                dynamic sess = session.Session;
+                string companyCode = sess.sCompanyCode;
+                _logger.LogInformation("Session company code: {CompanyCode}", companyCode);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Session appears to be corrupted - will invalidate");
+                sessionCorrupted = true;
+                throw new InvalidOperationException("Session is no longer valid");
+            }
 
             // Try to set program context (best practice for auditing)
             try
@@ -51,24 +66,42 @@ public class SalesOrderService : ISalesOrderService
             }
 
             // Create the SO_SalesOrder_bus object
-            _logger.LogDebug("Creating SO_SalesOrder_bus object");
+            _logger.LogInformation("Creating SO_SalesOrder_bus object...");
             salesOrder = session.ProvideXScript.NewObject("SO_SalesOrder_bus", session.Session);
             
             if (salesOrder == null)
             {
+                sessionCorrupted = true;
                 throw new InvalidOperationException("Failed to create SO_SalesOrder_bus object");
             }
+            _logger.LogInformation("SO_SalesOrder_bus object created successfully");
 
-            // Get next sales order number
-            string nextOrderNo = GetNextSalesOrderNumber(salesOrder);
-            _logger.LogInformation("Generated sales order number: {OrderNo}", nextOrderNo);
-
-            // Set the key to start the order
-            int setKeyRet = salesOrder.nSetKey(nextOrderNo);
-            if (setKeyRet == 0)
+            // Get next sales order number using nSetKey with empty string
+            // This tells Sage to assign the next available number automatically
+            _logger.LogInformation("Calling nSetKey with empty string to create new order...");
+            object setKeyResultObj = salesOrder.nSetKey("");
+            int setKeyResult = setKeyResultObj != null ? Convert.ToInt32(setKeyResultObj) : 0;
+            _logger.LogInformation("nSetKey('') returned: {Result}", setKeyResult);
+            
+            if (setKeyResult == 0)
             {
-                string error = salesOrder.sLastErrorMsg ?? "Unknown error";
-                throw new InvalidOperationException($"Failed to set key '{nextOrderNo}': {error}");
+                string setKeyError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                _logger.LogError("Failed to set key for new order: {Error}", setKeyError);
+                sessionCorrupted = true;
+                throw new InvalidOperationException($"Failed to initialize new sales order: {setKeyError}");
+            }
+            
+            // Get the assigned order number
+            string nextOrderNo = "";
+            try
+            {
+                object orderNoObj = salesOrder.sValue("SalesOrderNo$");
+                nextOrderNo = orderNoObj?.ToString() ?? "";
+                _logger.LogInformation("Assigned sales order number: {OrderNo}", nextOrderNo);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not retrieve assigned order number, continuing anyway");
             }
 
             // Set header information
@@ -205,11 +238,27 @@ public class SalesOrderService : ISalesOrderService
             }
 
             // Write the order (final commit)
-            _logger.LogDebug("Writing sales order to Sage 100");
-            int orderWriteResult = salesOrder.nWrite();
+            _logger.LogInformation("Writing sales order to Sage 100...");
+            object orderWriteResultObj = salesOrder.nWrite();
+            int orderWriteResult = orderWriteResultObj != null ? Convert.ToInt32(orderWriteResultObj) : 0;
+            _logger.LogInformation("salesOrder.nWrite() returned: {Result}", orderWriteResult);
             
             if (orderWriteResult == 1)
             {
+                // Get the final order number (in case it wasn't retrieved earlier)
+                if (string.IsNullOrEmpty(nextOrderNo))
+                {
+                    try
+                    {
+                        object orderNoObj = salesOrder.sValue("SalesOrderNo$");
+                        nextOrderNo = orderNoObj?.ToString() ?? "UNKNOWN";
+                    }
+                    catch
+                    {
+                        nextOrderNo = "CREATED";
+                    }
+                }
+                
                 _logger.LogInformation(
                     "Successfully created sales order {SalesOrderNo} for customer {Customer}", 
                     nextOrderNo, request.CustomerNumber);
@@ -236,6 +285,7 @@ public class SalesOrderService : ISalesOrderService
         catch (COMException comEx)
         {
             _logger.LogError(comEx, "COM error creating sales order. HRESULT: 0x{HResult:X}", comEx.HResult);
+            sessionCorrupted = true;
             return new SalesOrderResponse
             {
                 Success = false,
@@ -268,40 +318,19 @@ public class SalesOrderService : ISalesOrderService
                 catch { /* ignore cleanup errors */ }
             }
 
-            // Always return the session to the pool
+            // If session is corrupted, invalidate it instead of returning to pool
             if (session != null)
             {
-                _sessionManager.ReleaseSession(session);
+                if (sessionCorrupted)
+                {
+                    _logger.LogWarning("Invalidating corrupted session {SessionId}", session.SessionId);
+                    _sessionManager.InvalidateSession(session);
+                }
+                else
+                {
+                    _sessionManager.ReleaseSession(session);
+                }
             }
-        }
-    }
-
-    private string GetNextSalesOrderNumber(dynamic salesOrder)
-    {
-        try
-        {
-            // Use reflection for ByRef parameter handling
-            object[] args = new object[] { "" };
-            ParameterModifier[] modifiers = new ParameterModifier[1];
-            modifiers[0] = new ParameterModifier(1);
-            modifiers[0][0] = true; // First arg is ByRef
-
-            salesOrder.GetType().InvokeMember(
-                "nGetNextSalesOrderNo",
-                BindingFlags.InvokeMethod,
-                null,
-                salesOrder,
-                args,
-                modifiers,
-                null,
-                null
-            );
-            
-            return args[0]?.ToString() ?? throw new InvalidOperationException("nGetNextSalesOrderNo returned null");
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Failed to get next sales order number: {ex.Message}", ex);
         }
     }
 
