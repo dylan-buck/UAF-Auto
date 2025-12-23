@@ -146,23 +146,9 @@ If Err.Number <> 0 Then
 End If
 WScript.Echo "    SUCCESS"
 
-' Step 11c: Check oLines properties
-WScript.Echo "[11c] Checking oLines object..."
-On Error Resume Next
-WScript.Echo "    Trying sTableName: " & oLines.sTableName
-If Err.Number <> 0 Then
-    WScript.Echo "    sTableName error: " & Err.Description
-    Err.Clear
-End If
-WScript.Echo "    Trying sColumns: " & oLines.sColumns
-If Err.Number <> 0 Then
-    WScript.Echo "    sColumns error: " & Err.Description
-    Err.Clear
-End If
-
-' Step 12: Add Line
-WScript.Echo "[12] Adding line..."
-retVal = oLines.nAddLine()
+' Step 12: Add Line using direct oSO.oLines notation
+WScript.Echo "[12] Adding line using oSO.oLines.nAddLine()..."
+retVal = oSO.oLines.nAddLine()
 WScript.Echo "    nAddLine returned: " & retVal
 If Err.Number <> 0 Then
     WScript.Echo "    ERROR: " & Err.Description
@@ -171,48 +157,41 @@ End If
 
 ' Check current line state
 WScript.Echo "[12b] Checking line state after nAddLine..."
-WScript.Echo "    EditState: " & oLines.nEditState
+WScript.Echo "    EditState: " & oSO.oLines.nEditState
 If Err.Number <> 0 Then
     WScript.Echo "    nEditState error: " & Err.Description
     Err.Clear
 End If
 
-' Step 13: Set ItemCode$ (trying with third parameter like Tek-Tips example)
-WScript.Echo "[13] Setting ItemCode$ = " & ItemCode
-WScript.Echo "    Trying with third parameter 'kSALESORDERNO'..."
-retVal = oLines.nSetValue("ItemCode$", CStr(ItemCode), "kSALESORDERNO")
-WScript.Echo "    Result: " & retVal
-If Err.Number <> 0 Then
-    WScript.Echo "    COM Error (with 3rd param): " & Err.Description
-    Err.Clear
-    ' Try without third parameter as fallback
-    WScript.Echo "    Trying without third parameter..."
-    retVal = oLines.nSetValue("ItemCode$", CStr(ItemCode))
-    WScript.Echo "    Result: " & retVal
-    If Err.Number <> 0 Then
-        WScript.Echo "    COM Error: " & Err.Description
-        Err.Clear
-    End If
-End If
-If retVal = 0 Or retVal = "" Then
-    WScript.Echo "    sLastErrorMsg: " & oLines.sLastErrorMsg
-End If
-
-' Step 14: Set QuantityOrdered
-WScript.Echo "[14] Setting QuantityOrdered = " & Quantity
-retVal = oLines.nSetValue("QuantityOrdered", CDbl(Quantity))
+' Step 13: Set ItemCode$ using direct notation
+WScript.Echo "[13] Setting ItemCode$ = " & ItemCode & " using oSO.oLines..."
+retVal = oSO.oLines.nSetValue("ItemCode$", CStr(ItemCode))
 WScript.Echo "    Result: " & retVal
 If Err.Number <> 0 Then
     WScript.Echo "    COM Error: " & Err.Description
     Err.Clear
 End If
-If retVal = 0 Then
-    WScript.Echo "    sLastErrorMsg: " & oLines.sLastErrorMsg
+If retVal = 0 Or retVal = "" Then
+    WScript.Echo "    sLastErrorMsg: " & oSO.oLines.sLastErrorMsg
+    If Err.Number <> 0 Then Err.Clear
+End If
+
+' Step 14: Set QuantityOrdered
+WScript.Echo "[14] Setting QuantityOrdered = " & Quantity & " using oSO.oLines..."
+retVal = oSO.oLines.nSetValue("QuantityOrdered", CDbl(Quantity))
+WScript.Echo "    Result: " & retVal
+If Err.Number <> 0 Then
+    WScript.Echo "    COM Error: " & Err.Description
+    Err.Clear
+End If
+If retVal = 0 Or retVal = "" Then
+    WScript.Echo "    sLastErrorMsg: " & oSO.oLines.sLastErrorMsg
+    If Err.Number <> 0 Then Err.Clear
 End If
 
 ' Step 15: Set WarehouseCode$
-WScript.Echo "[15] Setting WarehouseCode$ = " & WarehouseCode
-retVal = oLines.nSetValue("WarehouseCode$", WarehouseCode)
+WScript.Echo "[15] Setting WarehouseCode$ = " & WarehouseCode & " using oSO.oLines..."
+retVal = oSO.oLines.nSetValue("WarehouseCode$", WarehouseCode)
 WScript.Echo "    Result: " & retVal
 If Err.Number <> 0 Then
     WScript.Echo "    COM Error: " & Err.Description
@@ -220,15 +199,16 @@ If Err.Number <> 0 Then
 End If
 
 ' Step 16: Write Line
-WScript.Echo "[16] Writing line (oLines.nWrite)..."
-retVal = oLines.nWrite()
+WScript.Echo "[16] Writing line (oSO.oLines.nWrite)..."
+retVal = oSO.oLines.nWrite()
 WScript.Echo "    nWrite returned: " & retVal
 If Err.Number <> 0 Then
     WScript.Echo "    COM Error: " & Err.Description
     Err.Clear
 End If
-If retVal = 0 Then
-    WScript.Echo "    sLastErrorMsg: " & oLines.sLastErrorMsg
+If retVal = 0 Or retVal = "" Then
+    WScript.Echo "    sLastErrorMsg: " & oSO.oLines.sLastErrorMsg
+    If Err.Number <> 0 Then Err.Clear
 End If
 
 ' Step 17: Write Order
