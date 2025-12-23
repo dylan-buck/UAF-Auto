@@ -232,28 +232,38 @@ try
 
     // Step 13: Set ItemCode
     Console.WriteLine($"[13] Setting ItemCode$ = '{itemCode}'...");
-    int itemRet = lines.nSetValue("ItemCode$", itemCode);
-    Console.WriteLine($"    Result: {itemRet}");
+    object? itemRetObj = lines.nSetValue("ItemCode$", itemCode);
+    Console.WriteLine($"    Raw result: {itemRetObj} (type: {itemRetObj?.GetType().Name ?? "null"})");
+    int itemRet = itemRetObj != null ? Convert.ToInt32(itemRetObj) : -1;
+    Console.WriteLine($"    Converted result: {itemRet}");
     if (itemRet == 0)
     {
         string itemError = "";
         try { itemError = lines.sLastErrorMsg ?? ""; } catch { }
         Console.WriteLine($"    Error: '{itemError}'");
     }
-    else
+    else if (itemRet == 1)
     {
         Console.WriteLine("    SUCCESS!");
+    }
+    else if (itemRet == -1)
+    {
+        Console.WriteLine("    Returned null - continuing anyway...");
     }
 
     // Step 14: Set quantity
     Console.WriteLine($"[14] Setting QuantityOrdered = {quantity}...");
     try
     {
-        int qtyRet = lines.nSetValue("QuantityOrdered", (double)quantity);
-        Console.WriteLine($"    Result: {qtyRet}");
+        object? qtyRetObj = lines.nSetValue("QuantityOrdered", (double)quantity);
+        Console.WriteLine($"    Raw result: {qtyRetObj} (type: {qtyRetObj?.GetType().Name ?? "null"})");
+        int qtyRet = qtyRetObj != null ? Convert.ToInt32(qtyRetObj) : -1;
+        Console.WriteLine($"    Converted result: {qtyRet}");
         if (qtyRet == 0)
         {
-            Console.WriteLine($"    Error: {lines.sLastErrorMsg}");
+            string qtyError = "";
+            try { qtyError = lines.sLastErrorMsg ?? ""; } catch { }
+            Console.WriteLine($"    Error: '{qtyError}'");
         }
     }
     catch (Exception ex)
@@ -263,9 +273,11 @@ try
 
     // Step 15: Write line
     Console.WriteLine("[15] Writing line with oLines.nWrite()...");
-    int lineWriteRet = lines.nWrite();
-    Console.WriteLine($"    nWrite returned: {lineWriteRet}");
-    if (lineWriteRet != 1)
+    object? lineWriteRetObj = lines.nWrite();
+    Console.WriteLine($"    Raw result: {lineWriteRetObj} (type: {lineWriteRetObj?.GetType().Name ?? "null"})");
+    int lineWriteRet = lineWriteRetObj != null ? Convert.ToInt32(lineWriteRetObj) : -1;
+    Console.WriteLine($"    Converted result: {lineWriteRet}");
+    if (lineWriteRet != 1 && lineWriteRet != -1)
     {
         string lineError = "";
         try { lineError = lines.sLastErrorMsg ?? ""; } catch { }
@@ -274,8 +286,10 @@ try
 
     // Step 16: Write order
     Console.WriteLine("[16] Writing order with salesOrder.nWrite()...");
-    int orderWriteRet = salesOrder.nWrite();
-    Console.WriteLine($"    nWrite returned: {orderWriteRet}");
+    object? orderWriteRetObj = salesOrder.nWrite();
+    Console.WriteLine($"    Raw result: {orderWriteRetObj} (type: {orderWriteRetObj?.GetType().Name ?? "null"})");
+    int orderWriteRet = orderWriteRetObj != null ? Convert.ToInt32(orderWriteRetObj) : -1;
+    Console.WriteLine($"    Converted result: {orderWriteRet}");
     if (orderWriteRet == 1)
     {
         Console.WriteLine();
