@@ -109,7 +109,8 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             }
             
             // Verify the session object has the expected methods
-            _logger.LogDebug("SY_Session object created, type: {Type}", session.GetType().ToString());
+            string sessionTypeName = ((object)session).GetType().ToString();
+            _logger.LogDebug("SY_Session object created, type: {Type}", sessionTypeName);
             
             // Authenticate - use a variable to help debug
             _logger.LogInformation("Authenticating user: {Username}", _config.Username);
@@ -120,7 +121,7 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             }
             catch (COMException comEx)
             {
-                _logger.LogError(comEx, "nSetUser COM error. Session type: {Type}", session.GetType().ToString());
+                _logger.LogError(comEx, "nSetUser COM error. Session type: {Type}", sessionTypeName);
                 throw;
             }
             
