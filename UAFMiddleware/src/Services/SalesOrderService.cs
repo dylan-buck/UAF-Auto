@@ -72,9 +72,33 @@ public class SalesOrderService : ISalesOrderService
             }
 
             // Set header information
+            // Parse customer number - might be in format "00-CUSTNO" or just "CUSTNO"
             string divisionNo = request.ARDivisionNo ?? "00";
-            salesOrder.nSetValue("ARDivisionNo$", divisionNo);
-            salesOrder.nSetValue("CustomerNo$", request.CustomerNumber);
+            string customerNo = request.CustomerNumber;
+            
+            // If customer number contains a dash and no explicit division, extract division from customer number
+            if (string.IsNullOrEmpty(request.ARDivisionNo) && customerNo.Contains("-"))
+            {
+                var parts = customerNo.Split('-', 2);
+                if (parts.Length == 2 && parts[0].Length == 2)
+                {
+                    divisionNo = parts[0];
+                    customerNo = parts[1];
+                    _logger.LogInformation("Parsed customer: Division={Division}, CustomerNo={CustomerNo}", divisionNo, customerNo);
+                }
+            }
+            
+            int divResult = salesOrder.nSetValue("ARDivisionNo$", divisionNo);
+            _logger.LogInformation("Set ARDivisionNo$ = {Division}, result: {Result}", divisionNo, divResult);
+            
+            int custResult = salesOrder.nSetValue("CustomerNo$", customerNo);
+            _logger.LogInformation("Set CustomerNo$ = {CustomerNo}, result: {Result}", customerNo, custResult);
+            if (custResult == 0)
+            {
+                string custError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                _logger.LogWarning("CustomerNo$ set warning: {Error}", custError);
+            }
+            
             salesOrder.nSetValue("CustomerPONo$", request.PONumber);
             
             if (!string.IsNullOrEmpty(request.OrderDate))
