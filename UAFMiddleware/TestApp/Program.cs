@@ -194,20 +194,43 @@ try
     salesOrder.nSetValue("CustomerPONo$", "TEST-ORDER-001");
     salesOrder.nSetValue("OrderDate$", DateTime.Now.ToString("yyyyMMdd"));
 
-    // Step 11: Get lines object via InvokeMember
-    Console.WriteLine("[11] Getting oLines object via InvokeMember...");
+    // Step 11: Try BOTH approaches - oLines property AND direct detail object creation
+    Console.WriteLine("[11] Approach A: Getting oLines via property...");
     Type soType = ((object)salesOrder).GetType();
-    object linesObj = soType.InvokeMember(
-        "oLines",
-        BindingFlags.GetProperty,
-        null,
-        salesOrder,
-        null
-    ) ?? throw new Exception("oLines returned null");
-    Console.WriteLine($"    Got oLines, type: {linesObj.GetType().Name}");
+    object? linesObj = null;
+    try
+    {
+        linesObj = soType.InvokeMember(
+            "oLines",
+            BindingFlags.GetProperty,
+            null,
+            salesOrder,
+            null
+        );
+        Console.WriteLine($"    Got oLines, type: {linesObj?.GetType().Name ?? "null"}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"    Error: {ex.Message}");
+    }
     
-    // Cast to dynamic for easier use
-    dynamic lines = linesObj;
+    Console.WriteLine("[11b] Approach B: Creating SO_SalesOrderDetail_bus directly...");
+    dynamic? detailObj = null;
+    try
+    {
+        // Try to create detail object directly with the header as parent
+        detailObj = pvx.NewObject("SO_SalesOrderDetail_bus", salesOrder);
+        Console.WriteLine($"    Created SO_SalesOrderDetail_bus directly!");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"    Could not create directly: {ex.Message}");
+    }
+    
+    // Use whichever works
+    object workingLines = detailObj ?? linesObj ?? throw new Exception("No lines object available");
+    Console.WriteLine($"    Using lines object of type: {workingLines.GetType().Name}");
+    dynamic lines = workingLines;
 
     // Step 11b: Check what columns are available
     Console.WriteLine("[11b] Checking available columns on lines object...");
@@ -231,17 +254,35 @@ try
         Console.WriteLine($"    Could not get columns: {ex.Message}");
     }
 
-    // Step 12: Add line via InvokeMember
-    Console.WriteLine("[12] Adding line with nAddLine() via InvokeMember...");
-    Type linesType2 = linesObj.GetType();
-    object? addLineRetObj = linesType2.InvokeMember(
-        "nAddLine",
-        BindingFlags.InvokeMethod,
-        null,
-        linesObj,
-        null
-    );
-    Console.WriteLine($"    nAddLine returned: {addLineRetObj}");
+    // Step 12: Add line
+    Console.WriteLine("[12] Adding line with nAddLine()...");
+    Type linesType2 = workingLines.GetType();
+    object? addLineRetObj = null;
+    try
+    {
+        addLineRetObj = linesType2.InvokeMember(
+            "nAddLine",
+            BindingFlags.InvokeMethod,
+            null,
+            workingLines,
+            null
+        );
+        Console.WriteLine($"    nAddLine returned: {addLineRetObj}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"    nAddLine failed: {ex.Message}");
+        // Try dynamic
+        try
+        {
+            addLineRetObj = lines.nAddLine();
+            Console.WriteLine($"    nAddLine (dynamic) returned: {addLineRetObj}");
+        }
+        catch (Exception ex2)
+        {
+            Console.WriteLine($"    nAddLine (dynamic) also failed: {ex2.Message}");
+        }
+    }
     
     // Step 12b: Explore the lines object
     Console.WriteLine("[12b] Exploring lines object methods and properties...");
@@ -273,98 +314,108 @@ try
     Console.WriteLine($"    Lines object type: {linesType2.Name}");
     
     // Try nSetValue via InvokeMember
-    Console.WriteLine("    [13a] Calling nSetValue via InvokeMember...");
+    Console.WriteLine("    [13a] Calling nSetValue('ItemCode$', itemCode) via InvokeMember...");
+    object? itemResult = null;
     try
     {
-        object? result = linesType2.InvokeMember(
+        itemResult = linesType2.InvokeMember(
             "nSetValue",
             BindingFlags.InvokeMethod,
             null,
-            linesObj,
+            workingLines,
             new object[] { "ItemCode$", itemCode }
         );
-        Console.WriteLine($"      Result: {result} (type: {result?.GetType().Name ?? "null"})");
+        Console.WriteLine($"      Result: '{itemResult}' (type: {itemResult?.GetType().Name ?? "null"})");
     }
     catch (Exception ex)
     {
         Console.WriteLine($"      Error: {ex.Message}");
     }
     
-    // Try to read the value back using GetValue
-    Console.WriteLine("    [13b] Reading ItemCode$ via InvokeMember GetValue...");
+    // Also try dynamic call
+    Console.WriteLine("    [13b] Calling nSetValue('ItemCode$', itemCode) via dynamic...");
     try
     {
-        string readValue = "";
-        object[] getValArgs = new object[] { "ItemCode$", readValue };
-        ParameterModifier[] getMods = new ParameterModifier[1];
-        getMods[0] = new ParameterModifier(2);
-        getMods[0][1] = true; // Second arg is ByRef
-        
-        object? result = linesType2.InvokeMember(
-            "nGetValue",
+        object? dynResult = lines.nSetValue("ItemCode$", itemCode);
+        Console.WriteLine($"      Dynamic result: '{dynResult}' (type: {dynResult?.GetType().Name ?? "null"})");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"      Dynamic error: {ex.Message}");
+    }
+    
+    // Try with nSetKeyValue instead (some fields might need this)
+    Console.WriteLine("    [13c] Trying nSetKeyValue('ItemCode$', itemCode)...");
+    try
+    {
+        object? keyValResult = linesType2.InvokeMember(
+            "nSetKeyValue",
             BindingFlags.InvokeMethod,
             null,
-            linesObj,
-            getValArgs,
-            getMods,
-            null,
-            null
+            workingLines,
+            new object[] { "ItemCode$", itemCode }
         );
-        Console.WriteLine($"      nGetValue result: {result}, ItemCode$ = '{getValArgs[1]}'");
+        Console.WriteLine($"      nSetKeyValue result: '{keyValResult}'");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"      Error: {ex.Message}");
-    }
-    
-    // Try listing methods on the object
-    Console.WriteLine("    [13c] Exploring COM object methods...");
-    try
-    {
-        // Get IDispatch type info if possible
-        var typeLib = System.Runtime.InteropServices.Marshal.GetIDispatchForObject(linesObj);
-        Console.WriteLine($"      Got IDispatch pointer");
-        System.Runtime.InteropServices.Marshal.Release(typeLib);
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"      Error: {ex.Message}");
+        Console.WriteLine($"      nSetKeyValue error: {ex.Message}");
     }
 
-    // Step 14: Set quantity via InvokeMember
-    Console.WriteLine($"[14] Setting QuantityOrdered = {quantity} via InvokeMember...");
+    // Step 14: Set quantity
+    Console.WriteLine($"[14] Setting QuantityOrdered = {quantity}...");
     try
     {
         object? qtyRetObj = linesType2.InvokeMember(
             "nSetValue",
             BindingFlags.InvokeMethod,
             null,
-            linesObj,
+            workingLines,
             new object[] { "QuantityOrdered", (double)quantity }
         );
-        Console.WriteLine($"    Result: {qtyRetObj} (type: {qtyRetObj?.GetType().Name ?? "null"})");
+        Console.WriteLine($"    InvokeMember result: '{qtyRetObj}'");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"    Exception: {ex.Message}");
+        Console.WriteLine($"    InvokeMember error: {ex.Message}");
+        // Try dynamic
+        try
+        {
+            object? dynQty = lines.nSetValue("QuantityOrdered", (double)quantity);
+            Console.WriteLine($"    Dynamic result: '{dynQty}'");
+        }
+        catch (Exception ex2)
+        {
+            Console.WriteLine($"    Dynamic error: {ex2.Message}");
+        }
     }
 
-    // Step 15: Write line via InvokeMember
-    Console.WriteLine("[15] Writing line with oLines.nWrite() via InvokeMember...");
+    // Step 15: Write line
+    Console.WriteLine("[15] Writing line with nWrite()...");
     try
     {
         object? lineWriteRetObj = linesType2.InvokeMember(
             "nWrite",
             BindingFlags.InvokeMethod,
             null,
-            linesObj,
+            workingLines,
             null
         );
-        Console.WriteLine($"    Result: {lineWriteRetObj} (type: {lineWriteRetObj?.GetType().Name ?? "null"})");
+        Console.WriteLine($"    InvokeMember result: '{lineWriteRetObj}'");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"    Exception: {ex.Message}");
+        Console.WriteLine($"    InvokeMember error: {ex.Message}");
+        // Try dynamic
+        try
+        {
+            object? dynWrite = lines.nWrite();
+            Console.WriteLine($"    Dynamic result: '{dynWrite}'");
+        }
+        catch (Exception ex2)
+        {
+            Console.WriteLine($"    Dynamic error: {ex2.Message}");
+        }
     }
 
     // Step 16: Write order
