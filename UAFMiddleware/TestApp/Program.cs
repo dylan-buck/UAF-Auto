@@ -223,32 +223,120 @@ try
 
     // Step 12: Add line
     Console.WriteLine("[12] Adding line with nAddLine()...");
-    int addLineRet = lines.nAddLine();
-    Console.WriteLine($"    nAddLine returned: {addLineRet}");
-    if (addLineRet == 0)
+    object? addLineRetObj = lines.nAddLine();
+    Console.WriteLine($"    nAddLine returned: {addLineRetObj}");
+    
+    // Step 12b: Explore the lines object
+    Console.WriteLine("[12b] Exploring lines object methods and properties...");
+    try
     {
-        Console.WriteLine($"    WARNING: {lines.sLastErrorMsg}");
+        // Try to get current line number
+        Console.WriteLine("    Trying lines.nLineCount...");
+        try { Console.WriteLine($"      nLineCount: {lines.nLineCount}"); } catch (Exception ex) { Console.WriteLine($"      Error: {ex.Message}"); }
+        
+        Console.WriteLine("    Trying lines.nLineNo...");
+        try { Console.WriteLine($"      nLineNo: {lines.nLineNo}"); } catch (Exception ex) { Console.WriteLine($"      Error: {ex.Message}"); }
+        
+        // Try different ways to set item code
+        Console.WriteLine("    Trying lines.sValue('ItemCode$')...");
+        try 
+        { 
+            string currentItem = lines.sValue("ItemCode$");
+            Console.WriteLine($"      Current ItemCode$: '{currentItem}'"); 
+        } 
+        catch (Exception ex) { Console.WriteLine($"      Error: {ex.Message}"); }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"    Exploration failed: {ex.Message}");
     }
 
-    // Step 13: Set ItemCode
-    Console.WriteLine($"[13] Setting ItemCode$ = '{itemCode}'...");
-    object? itemRetObj = lines.nSetValue("ItemCode$", itemCode);
-    Console.WriteLine($"    Raw result: {itemRetObj} (type: {itemRetObj?.GetType().Name ?? "null"})");
-    int itemRet = itemRetObj != null ? Convert.ToInt32(itemRetObj) : -1;
-    Console.WriteLine($"    Converted result: {itemRet}");
-    if (itemRet == 0)
+    // Step 13: Try different approaches to set ItemCode
+    Console.WriteLine($"[13] Setting ItemCode$ = '{itemCode}' - trying multiple approaches...");
+    
+    bool itemSet = false;
+    
+    // Approach 1: Standard nSetValue
+    Console.WriteLine("    [13a] Trying lines.nSetValue('ItemCode$', itemCode)...");
+    try
     {
-        string itemError = "";
-        try { itemError = lines.sLastErrorMsg ?? ""; } catch { }
-        Console.WriteLine($"    Error: '{itemError}'");
+        object? itemRetObj = lines.nSetValue("ItemCode$", itemCode);
+        Console.WriteLine($"      Result: {itemRetObj}");
+        if (itemRetObj != null && Convert.ToInt32(itemRetObj) == 1)
+        {
+            Console.WriteLine("      SUCCESS!");
+            itemSet = true;
+        }
     }
-    else if (itemRet == 1)
+    catch (Exception ex)
     {
-        Console.WriteLine("    SUCCESS!");
+        Console.WriteLine($"      Error: {ex.Message}");
     }
-    else if (itemRet == -1)
+    
+    // Approach 2: Try setting via SetValue (without the 'n' prefix)
+    if (!itemSet)
     {
-        Console.WriteLine("    Returned null - continuing anyway...");
+        Console.WriteLine("    [13b] Trying lines.SetValue('ItemCode$', itemCode)...");
+        try
+        {
+            lines.SetValue("ItemCode$", itemCode);
+            Console.WriteLine("      No exception - might have worked");
+            itemSet = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"      Error: {ex.Message}");
+        }
+    }
+    
+    // Approach 3: Try setting property directly
+    if (!itemSet)
+    {
+        Console.WriteLine("    [13c] Trying lines.ItemCode$ = itemCode...");
+        try
+        {
+            // This probably won't work due to $ in name, but try anyway
+            ((dynamic)lines).SetProperty("ItemCode$", itemCode);
+            Console.WriteLine("      No exception");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"      Error: {ex.Message}");
+        }
+    }
+    
+    // Approach 4: Check if there's an inner line object
+    if (!itemSet)
+    {
+        Console.WriteLine("    [13d] Trying to access lines.oLine...");
+        try
+        {
+            dynamic line = lines.oLine;
+            Console.WriteLine("      Got oLine object!");
+            object? lineItemRet = line.nSetValue("ItemCode$", itemCode);
+            Console.WriteLine($"      oLine.nSetValue result: {lineItemRet}");
+            if (lineItemRet != null && Convert.ToInt32(lineItemRet) == 1)
+            {
+                Console.WriteLine("      SUCCESS via oLine!");
+                itemSet = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"      Error: {ex.Message}");
+        }
+    }
+    
+    // Check what we have now
+    Console.WriteLine("    [13e] Checking current ItemCode$ value...");
+    try
+    {
+        string currentItem = lines.sValue("ItemCode$");
+        Console.WriteLine($"      Current ItemCode$: '{currentItem}'");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"      Error: {ex.Message}");
     }
 
     // Step 14: Set quantity
