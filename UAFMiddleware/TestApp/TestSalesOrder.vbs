@@ -98,16 +98,27 @@ If oSO Is Nothing Then
 End If
 WScript.Echo "    SUCCESS"
 
+' Step 7b: Get Lines Object IMMEDIATELY (before setting key - per Tek-Tips example)
+WScript.Echo "[7b] Getting oLines (before nSetKey)..."
+Set oLines = oSO.oLines
+If Err.Number <> 0 Then
+    WScript.Echo "    ERROR: " & Err.Description
+    Err.Clear
+End If
+WScript.Echo "    SUCCESS"
+
 ' Step 8: Get Next Order Number
 WScript.Echo "[8] Getting next sales order number..."
 nextOrderNo = ""
 retVal = oSO.nGetNextSalesOrderNo(nextOrderNo)
 WScript.Echo "    Next order number: " & nextOrderNo
 
-' Step 9: Set Key
-WScript.Echo "[9] Setting key: " & nextOrderNo
-retVal = oSO.nSetKey(nextOrderNo)
-WScript.Echo "    nSetKey returned: " & retVal
+' Step 9: Set Key using nSetKeyValue + nSetKey() pattern
+WScript.Echo "[9] Setting key using nSetKeyValue pattern..."
+retVal = oSO.nSetKeyValue("SalesOrderNo$", nextOrderNo)
+WScript.Echo "    nSetKeyValue returned: " & retVal
+retVal = oSO.nSetKey()
+WScript.Echo "    nSetKey() returned: " & retVal
 If retVal = 0 Then
     WScript.Echo "    ERROR: " & oSO.sLastErrorMsg
     WScript.Quit 1
@@ -123,11 +134,11 @@ retVal = oSO.nSetValue("CustomerNo$", CustomerNo)
 WScript.Echo "    CustomerNo$ = " & CustomerNo & ", result: " & retVal
 If retVal = 0 Then WScript.Echo "        Warning: " & oSO.sLastErrorMsg
 
-retVal = oSO.nSetValue("CustomerPONo$", "VBS-TEST-001")
-WScript.Echo "    CustomerPONo$ = VBS-TEST-001, result: " & retVal
+retVal = oSO.nSetValue("CustomerPONo$", "VBS-TEST-002")
+WScript.Echo "    CustomerPONo$ = VBS-TEST-002, result: " & retVal
 
-' Step 11: Get Lines Object
-WScript.Echo "[11] Getting oLines..."
+' Step 11: Re-get Lines Object (in case it changed after nSetKey)
+WScript.Echo "[11] Re-getting oLines after header setup..."
 Set oLines = oSO.oLines
 If Err.Number <> 0 Then
     WScript.Echo "    ERROR: " & Err.Description
@@ -135,23 +146,55 @@ If Err.Number <> 0 Then
 End If
 WScript.Echo "    SUCCESS"
 
+' Step 11c: Check oLines properties
+WScript.Echo "[11c] Checking oLines object..."
+On Error Resume Next
+WScript.Echo "    Trying sTableName: " & oLines.sTableName
+If Err.Number <> 0 Then
+    WScript.Echo "    sTableName error: " & Err.Description
+    Err.Clear
+End If
+WScript.Echo "    Trying sColumns: " & oLines.sColumns
+If Err.Number <> 0 Then
+    WScript.Echo "    sColumns error: " & Err.Description
+    Err.Clear
+End If
+
 ' Step 12: Add Line
 WScript.Echo "[12] Adding line..."
 retVal = oLines.nAddLine()
 WScript.Echo "    nAddLine returned: " & retVal
 If Err.Number <> 0 Then
     WScript.Echo "    ERROR: " & Err.Description
-End If
-
-' Step 13: Set ItemCode$
-WScript.Echo "[13] Setting ItemCode$ = " & ItemCode
-retVal = oLines.nSetValue("ItemCode$", CStr(ItemCode))
-WScript.Echo "    Result: " & retVal
-If Err.Number <> 0 Then
-    WScript.Echo "    COM Error: " & Err.Description
     Err.Clear
 End If
-If retVal = 0 Then
+
+' Check current line state
+WScript.Echo "[12b] Checking line state after nAddLine..."
+WScript.Echo "    EditState: " & oLines.nEditState
+If Err.Number <> 0 Then
+    WScript.Echo "    nEditState error: " & Err.Description
+    Err.Clear
+End If
+
+' Step 13: Set ItemCode$ (trying with third parameter like Tek-Tips example)
+WScript.Echo "[13] Setting ItemCode$ = " & ItemCode
+WScript.Echo "    Trying with third parameter 'kSALESORDERNO'..."
+retVal = oLines.nSetValue("ItemCode$", CStr(ItemCode), "kSALESORDERNO")
+WScript.Echo "    Result: " & retVal
+If Err.Number <> 0 Then
+    WScript.Echo "    COM Error (with 3rd param): " & Err.Description
+    Err.Clear
+    ' Try without third parameter as fallback
+    WScript.Echo "    Trying without third parameter..."
+    retVal = oLines.nSetValue("ItemCode$", CStr(ItemCode))
+    WScript.Echo "    Result: " & retVal
+    If Err.Number <> 0 Then
+        WScript.Echo "    COM Error: " & Err.Description
+        Err.Clear
+    End If
+End If
+If retVal = 0 Or retVal = "" Then
     WScript.Echo "    sLastErrorMsg: " & oLines.sLastErrorMsg
 End If
 
