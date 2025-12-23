@@ -164,7 +164,8 @@ public class SalesOrderService : ISalesOrderService
                     lineNum, line.ItemCode, line.Quantity);
 
                 // Add new line to the lines object
-                int addLineRet = lines.nAddLine();
+                object addLineResultObj = lines.nAddLine();
+                int addLineRet = addLineResultObj != null ? Convert.ToInt32(addLineResultObj) : 0;
                 _logger.LogInformation("oLines.nAddLine returned: {Result}", addLineRet);
                 
                 if (addLineRet == 0)
@@ -173,18 +174,7 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogWarning("nAddLine warning: {Error}", lineError);
                 }
 
-                // Set warehouse first (required before item code)
-                string warehouseCode = line.WarehouseCode ?? "000";
-                object whseResultObj = lines.nSetValue("WarehouseCode$", warehouseCode);
-                int whseResult = whseResultObj != null ? Convert.ToInt32(whseResultObj) : 0;
-                _logger.LogInformation("Set WarehouseCode$ = {Warehouse}, result: {Result}", warehouseCode, whseResult);
-                if (whseResult == 0)
-                {
-                    string whseError = lines.sLastErrorMsg ?? "Unknown error";
-                    _logger.LogWarning("WarehouseCode$ set warning: {Error}", whseError);
-                }
-                
-                // Set item code on the lines object
+                // IMPORTANT: Set ItemCode$ FIRST - this loads item defaults (pricing, warehouse, etc.)
                 object itemResultObj = lines.nSetValue("ItemCode$", line.ItemCode);
                 int itemResult = itemResultObj != null ? Convert.ToInt32(itemResultObj) : 0;
                 _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", line.ItemCode, itemResult);
@@ -193,8 +183,8 @@ public class SalesOrderService : ISalesOrderService
                     string itemError = lines.sLastErrorMsg ?? "Unknown error";
                     _logger.LogWarning("ItemCode$ set warning: {Error}", itemError);
                 }
-                
-                // Set quantity on the lines object (convert to double for COM compatibility)
+
+                // Set quantity (convert to double for COM compatibility)
                 object qtyResultObj = lines.nSetValue("QuantityOrdered", Convert.ToDouble(line.Quantity));
                 int qtyResult = qtyResultObj != null ? Convert.ToInt32(qtyResultObj) : 0;
                 _logger.LogInformation("Set QuantityOrdered = {Qty}, result: {Result}", line.Quantity, qtyResult);
@@ -203,7 +193,21 @@ public class SalesOrderService : ISalesOrderService
                     string qtyError = lines.sLastErrorMsg ?? "Unknown error";
                     _logger.LogWarning("QuantityOrdered set warning: {Error}", qtyError);
                 }
+
+                // Override warehouse if specified (after item code sets the default)
+                if (!string.IsNullOrEmpty(line.WarehouseCode))
+                {
+                    object whseResultObj = lines.nSetValue("WarehouseCode$", line.WarehouseCode);
+                    int whseResult = whseResultObj != null ? Convert.ToInt32(whseResultObj) : 0;
+                    _logger.LogInformation("Set WarehouseCode$ = {Warehouse}, result: {Result}", line.WarehouseCode, whseResult);
+                    if (whseResult == 0)
+                    {
+                        string whseError = lines.sLastErrorMsg ?? "Unknown error";
+                        _logger.LogWarning("WarehouseCode$ set warning: {Error}", whseError);
+                    }
+                }
                 
+                // Override unit price if specified
                 if (line.UnitPrice.HasValue)
                 {
                     object priceResultObj = lines.nSetValue("UnitPrice", Convert.ToDouble(line.UnitPrice.Value));
@@ -211,13 +215,15 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogInformation("Set UnitPrice = {Price}, result: {Result}", line.UnitPrice.Value, priceResult);
                 }
                 
+                // Override description if specified
                 if (!string.IsNullOrEmpty(line.Description))
                 {
                     lines.nSetValue("ItemCodeDesc$", line.Description);
                 }
 
                 // Write the line
-                int lineWriteResult = lines.nWrite();
+                object lineWriteResultObj = lines.nWrite();
+                int lineWriteResult = lineWriteResultObj != null ? Convert.ToInt32(lineWriteResultObj) : 0;
                 _logger.LogInformation("oLines.nWrite returned: {Result}", lineWriteResult);
                 if (lineWriteResult == 0)
                 {
