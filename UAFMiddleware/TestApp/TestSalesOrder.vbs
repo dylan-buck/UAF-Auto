@@ -137,14 +137,46 @@ If retVal = 0 Then WScript.Echo "        Warning: " & oSO.sLastErrorMsg
 retVal = oSO.nSetValue("CustomerPONo$", "VBS-TEST-002")
 WScript.Echo "    CustomerPONo$ = VBS-TEST-002, result: " & retVal
 
-' Step 11: Re-get Lines Object (in case it changed after nSetKey)
-WScript.Echo "[11] Re-getting oLines after header setup..."
+' Step 11: Try multiple ways to get the lines object
+WScript.Echo "[11] Trying to get lines object..."
+
+' Method 1: Direct oLines property
+WScript.Echo "    [11a] Trying oSO.oLines..."
 Set oLines = oSO.oLines
 If Err.Number <> 0 Then
-    WScript.Echo "    ERROR: " & Err.Description
-    WScript.Quit 1
+    WScript.Echo "        ERROR: " & Err.Description
+    Err.Clear
+Else
+    WScript.Echo "        Got object: " & TypeName(oLines)
 End If
-WScript.Echo "    SUCCESS"
+
+' Method 2: Using AsObject wrapper
+WScript.Echo "    [11b] Trying oSession.AsObject(oSO.oLines)..."
+On Error Resume Next
+Set oLines = oSession.AsObject(oSO.oLines)
+If Err.Number <> 0 Then
+    WScript.Echo "        ERROR: " & Err.Description
+    Err.Clear
+Else
+    WScript.Echo "        Got object via AsObject: " & TypeName(oLines)
+End If
+
+' Method 3: Check if there's a GetChildHandle method
+WScript.Echo "    [11c] Trying oSO.GetChildHandle..."
+Dim childHandle
+childHandle = oSO.GetChildHandle("oLines")
+If Err.Number <> 0 Then
+    WScript.Echo "        ERROR: " & Err.Description
+    Err.Clear
+Else
+    WScript.Echo "        GetChildHandle returned: " & childHandle
+    If childHandle <> 0 Then
+        Set oLines = oSession.AsObject(childHandle)
+        WScript.Echo "        Got object via GetChildHandle: " & TypeName(oLines)
+    End If
+End If
+
+WScript.Echo "    Final oLines type: " & TypeName(oLines)
 
 ' Step 12: Add Line using direct oSO.oLines notation
 WScript.Echo "[12] Adding line using oSO.oLines.nAddLine()..."
