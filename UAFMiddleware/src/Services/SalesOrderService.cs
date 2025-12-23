@@ -149,6 +149,17 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogWarning("nAddLine warning: {Error}", lineError);
                 }
 
+                // Set warehouse first (required before item code)
+                string warehouseCode = line.WarehouseCode ?? "000";
+                object whseResultObj = lines.nSetValue("WarehouseCode$", warehouseCode);
+                int whseResult = whseResultObj != null ? Convert.ToInt32(whseResultObj) : 0;
+                _logger.LogInformation("Set WarehouseCode$ = {Warehouse}, result: {Result}", warehouseCode, whseResult);
+                if (whseResult == 0)
+                {
+                    string whseError = lines.sLastErrorMsg ?? "Unknown error";
+                    _logger.LogWarning("WarehouseCode$ set warning: {Error}", whseError);
+                }
+                
                 // Set item code on the lines object
                 object itemResultObj = lines.nSetValue("ItemCode$", line.ItemCode);
                 int itemResult = itemResultObj != null ? Convert.ToInt32(itemResultObj) : 0;
@@ -171,7 +182,7 @@ public class SalesOrderService : ISalesOrderService
                 
                 if (line.UnitPrice.HasValue)
                 {
-                    object priceResultObj = lines.nSetValue("UnitPrice", line.UnitPrice.Value);
+                    object priceResultObj = lines.nSetValue("UnitPrice", Convert.ToDouble(line.UnitPrice.Value));
                     int priceResult = priceResultObj != null ? Convert.ToInt32(priceResultObj) : 0;
                     _logger.LogInformation("Set UnitPrice = {Price}, result: {Result}", line.UnitPrice.Value, priceResult);
                 }
@@ -179,11 +190,6 @@ public class SalesOrderService : ISalesOrderService
                 if (!string.IsNullOrEmpty(line.Description))
                 {
                     lines.nSetValue("ItemCodeDesc$", line.Description);
-                }
-                
-                if (!string.IsNullOrEmpty(line.WarehouseCode))
-                {
-                    lines.nSetValue("WarehouseCode$", line.WarehouseCode);
                 }
 
                 // Write the line
