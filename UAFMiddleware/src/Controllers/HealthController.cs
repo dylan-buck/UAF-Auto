@@ -23,7 +23,6 @@ public class HealthController : ControllerBase
     /// Basic health check - is the API running?
     /// </summary>
     [HttpGet]
-    [HttpGet("/health")]
     public ActionResult<HealthResponse> GetHealth()
     {
         var uptime = DateTime.UtcNow - HealthMonitorService.StartTime;
@@ -41,7 +40,6 @@ public class HealthController : ControllerBase
     /// Detailed health check - includes Sage 100 connectivity
     /// </summary>
     [HttpGet("ready")]
-    [HttpGet("/health/ready")]
     public async Task<ActionResult<HealthResponse>> GetReadiness()
     {
         try
