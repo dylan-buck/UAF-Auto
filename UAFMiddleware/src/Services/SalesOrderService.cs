@@ -150,7 +150,8 @@ public class SalesOrderService : ISalesOrderService
                 }
 
                 // Set item code on the lines object
-                int itemResult = lines.nSetValue("ItemCode$", line.ItemCode);
+                object itemResultObj = lines.nSetValue("ItemCode$", line.ItemCode);
+                int itemResult = itemResultObj != null ? Convert.ToInt32(itemResultObj) : 0;
                 _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", line.ItemCode, itemResult);
                 if (itemResult == 0)
                 {
@@ -159,7 +160,8 @@ public class SalesOrderService : ISalesOrderService
                 }
                 
                 // Set quantity on the lines object
-                int qtyResult = lines.nSetValue("QuantityOrdered", line.Quantity);
+                object qtyResultObj = lines.nSetValue("QuantityOrdered", line.Quantity);
+                int qtyResult = qtyResultObj != null ? Convert.ToInt32(qtyResultObj) : 0;
                 _logger.LogInformation("Set QuantityOrdered = {Qty}, result: {Result}", line.Quantity, qtyResult);
                 if (qtyResult == 0)
                 {
@@ -169,7 +171,8 @@ public class SalesOrderService : ISalesOrderService
                 
                 if (line.UnitPrice.HasValue)
                 {
-                    int priceResult = lines.nSetValue("UnitPrice", line.UnitPrice.Value);
+                    object priceResultObj = lines.nSetValue("UnitPrice", line.UnitPrice.Value);
+                    int priceResult = priceResultObj != null ? Convert.ToInt32(priceResultObj) : 0;
                     _logger.LogInformation("Set UnitPrice = {Price}, result: {Result}", line.UnitPrice.Value, priceResult);
                 }
                 
