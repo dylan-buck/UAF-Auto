@@ -251,88 +251,87 @@ try
         Console.WriteLine($"    Exploration failed: {ex.Message}");
     }
 
-    // Step 13: Try different approaches to set ItemCode
-    Console.WriteLine($"[13] Setting ItemCode$ = '{itemCode}' - trying multiple approaches...");
+    // Step 13: Try using Type.InvokeMember for proper late binding
+    Console.WriteLine($"[13] Setting ItemCode$ = '{itemCode}' using InvokeMember...");
     
-    bool itemSet = false;
+    Type linesType = ((object)lines).GetType();
+    Console.WriteLine($"    Lines object type: {linesType.Name}");
     
-    // Approach 1: Standard nSetValue
-    Console.WriteLine("    [13a] Trying lines.nSetValue('ItemCode$', itemCode)...");
+    // Try nSetValue via InvokeMember
+    Console.WriteLine("    [13a] Calling nSetValue via InvokeMember...");
     try
     {
-        object? itemRetObj = lines.nSetValue("ItemCode$", itemCode);
-        Console.WriteLine($"      Result: {itemRetObj}");
-        if (itemRetObj != null && Convert.ToInt32(itemRetObj) == 1)
-        {
-            Console.WriteLine("      SUCCESS!");
-            itemSet = true;
-        }
+        object? result = linesType.InvokeMember(
+            "nSetValue",
+            BindingFlags.InvokeMethod,
+            null,
+            lines,
+            new object[] { "ItemCode$", itemCode }
+        );
+        Console.WriteLine($"      Result: {result} (type: {result?.GetType().Name ?? "null"})");
     }
     catch (Exception ex)
     {
         Console.WriteLine($"      Error: {ex.Message}");
     }
     
-    // Approach 2: Try setting via SetValue (without the 'n' prefix)
-    if (!itemSet)
-    {
-        Console.WriteLine("    [13b] Trying lines.SetValue('ItemCode$', itemCode)...");
-        try
-        {
-            lines.SetValue("ItemCode$", itemCode);
-            Console.WriteLine("      No exception - might have worked");
-            itemSet = true;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"      Error: {ex.Message}");
-        }
-    }
-    
-    // Approach 3: Try setting property directly
-    if (!itemSet)
-    {
-        Console.WriteLine("    [13c] Trying lines.ItemCode$ = itemCode...");
-        try
-        {
-            // This probably won't work due to $ in name, but try anyway
-            ((dynamic)lines).SetProperty("ItemCode$", itemCode);
-            Console.WriteLine("      No exception");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"      Error: {ex.Message}");
-        }
-    }
-    
-    // Approach 4: Check if there's an inner line object
-    if (!itemSet)
-    {
-        Console.WriteLine("    [13d] Trying to access lines.oLine...");
-        try
-        {
-            dynamic line = lines.oLine;
-            Console.WriteLine("      Got oLine object!");
-            object? lineItemRet = line.nSetValue("ItemCode$", itemCode);
-            Console.WriteLine($"      oLine.nSetValue result: {lineItemRet}");
-            if (lineItemRet != null && Convert.ToInt32(lineItemRet) == 1)
-            {
-                Console.WriteLine("      SUCCESS via oLine!");
-                itemSet = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"      Error: {ex.Message}");
-        }
-    }
-    
-    // Check what we have now
-    Console.WriteLine("    [13e] Checking current ItemCode$ value...");
+    // Try to read the value back
+    Console.WriteLine("    [13b] Reading ItemCode$ via InvokeMember sValue...");
     try
     {
-        string currentItem = lines.sValue("ItemCode$");
-        Console.WriteLine($"      Current ItemCode$: '{currentItem}'");
+        object? result = linesType.InvokeMember(
+            "sValue",
+            BindingFlags.InvokeMethod,
+            null,
+            lines,
+            new object[] { "ItemCode$" }
+        );
+        Console.WriteLine($"      ItemCode$ = '{result}'");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"      Error: {ex.Message}");
+    }
+    
+    // Try to get columns list
+    Console.WriteLine("    [13c] Getting sColumns via InvokeMember...");
+    try
+    {
+        object? result = linesType.InvokeMember(
+            "sColumns",
+            BindingFlags.GetProperty,
+            null,
+            lines,
+            null
+        );
+        Console.WriteLine($"      sColumns = '{result?.ToString()?.Substring(0, Math.Min(200, result?.ToString()?.Length ?? 0))}'...");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"      Error: {ex.Message}");
+    }
+    
+    // Try direct property access for ItemCode
+    Console.WriteLine("    [13d] Trying to set ItemCode$ as property...");
+    try
+    {
+        linesType.InvokeMember(
+            "ItemCode$",
+            BindingFlags.SetProperty,
+            null,
+            lines,
+            new object[] { itemCode }
+        );
+        Console.WriteLine("      No exception - checking value...");
+        
+        object? checkResult = linesType.InvokeMember(
+            "ItemCode$",
+            BindingFlags.GetProperty,
+            null,
+            lines,
+            null
+        );
+        Console.WriteLine($"      ItemCode$ = '{checkResult}'");
     }
     catch (Exception ex)
     {
