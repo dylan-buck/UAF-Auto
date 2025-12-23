@@ -7,7 +7,7 @@ Console.WriteLine("===========================================");
 Console.WriteLine();
 
 // CONFIGURE THESE VALUES
-string serverPath = @"\\uaf-erp\Sage\Sage 100 Premium\MAS90\Home";
+string serverPath = @"\\uaf-erp\Sage Premium 2022\MAS90\Home";
 string company = "TST";
 string customerDivision = "01";
 string customerNo = "A0075";
