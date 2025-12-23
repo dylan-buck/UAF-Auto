@@ -31,26 +31,38 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
 
     private void EnsureInitialized()
     {
-        if (_initialized) return;
+        if (_initialized)
+        {
+            _logger.LogDebug("Already initialized, skipping");
+            return;
+        }
 
+        _logger.LogDebug("Acquiring initialization lock...");
         lock (this)
         {
-            if (_initialized) return;
+            if (_initialized)
+            {
+                _logger.LogDebug("Already initialized (inside lock), skipping");
+                return;
+            }
 
             _logger.LogInformation("Initializing ProvideX session pool with {PoolSize} sessions", 
                 _config.SessionPoolSize);
             _logger.LogInformation("Sage 100 Server Path: {ServerPath}", _config.ServerPath);
             _logger.LogInformation("Sage 100 Company: {Company}", _config.Company);
             
+            int successCount = 0;
             // Pre-create sessions in the pool
             for (int i = 0; i < _config.SessionPoolSize; i++)
             {
                 try
                 {
+                    _logger.LogInformation("Creating session {Index}/{Total}...", i + 1, _config.SessionPoolSize);
                     var session = CreateNewSession();
                     _availableSessions.Add(session);
-                    _logger.LogInformation("Created session {Index}/{Total}: {SessionId}", 
-                        i + 1, _config.SessionPoolSize, session.SessionId);
+                    successCount++;
+                    _logger.LogInformation("Created session {Index}/{Total}: {SessionId}. Pool now has {Count} sessions.", 
+                        i + 1, _config.SessionPoolSize, session.SessionId, _availableSessions.Count);
                 }
                 catch (Exception ex)
                 {
@@ -59,7 +71,8 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             }
 
             _initialized = true;
-            _logger.LogInformation("Session pool initialized with {Count} sessions", _availableSessions.Count);
+            _logger.LogInformation("Session pool initialized. Created {Success}/{Total} sessions. Pool count: {Count}", 
+                successCount, _config.SessionPoolSize, _availableSessions.Count);
         }
     }
 
@@ -68,6 +81,7 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
         try
         {
             // Create ProvideX.Script COM object
+            _logger.LogInformation("Creating ProvideX.Script COM object...");
             Type? pvxType = Type.GetTypeFromProgID("ProvideX.Script");
             if (pvxType == null)
             {
@@ -75,36 +89,71 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
                     "ProvideX.Script COM object not registered. " +
                     "Ensure Sage 100 workstation components are installed.");
             }
+            _logger.LogDebug("ProvideX.Script type: {TypeName}", pvxType.FullName);
 
             dynamic pvx = Activator.CreateInstance(pvxType) 
                 ?? throw new InvalidOperationException("Failed to create ProvideX.Script instance");
+            _logger.LogDebug("ProvideX.Script instance created");
 
             // Initialize with server path
-            _logger.LogDebug("Initializing ProvideX with path: {ServerPath}", _config.ServerPath);
+            _logger.LogInformation("Initializing ProvideX with path: {ServerPath}", _config.ServerPath);
             pvx.Init(_config.ServerPath);
+            _logger.LogDebug("ProvideX.Init completed");
 
             // Create session object
+            _logger.LogInformation("Creating SY_Session object...");
             dynamic session = pvx.NewObject("SY_Session");
             if (session == null)
             {
-                throw new InvalidOperationException("Failed to create SY_Session object");
+                throw new InvalidOperationException("Failed to create SY_Session object - NewObject returned null");
             }
             
-            // Authenticate
-            _logger.LogDebug("Authenticating user: {Username}", _config.Username);
-            int userRet = session.nSetUser(_config.Username, _config.Password);
+            // Verify the session object has the expected methods
+            _logger.LogDebug("SY_Session object created, type: {Type}", session.GetType().ToString());
+            
+            // Authenticate - use a variable to help debug
+            _logger.LogInformation("Authenticating user: {Username}", _config.Username);
+            object userRetObj;
+            try
+            {
+                userRetObj = session.nSetUser(_config.Username, _config.Password);
+            }
+            catch (COMException comEx)
+            {
+                _logger.LogError(comEx, "nSetUser COM error. Session type: {Type}", session.GetType().ToString());
+                throw;
+            }
+            
+            int userRet = userRetObj != null ? Convert.ToInt32(userRetObj) : 0;
+            _logger.LogInformation("nSetUser returned: {Result}", userRet);
+            
             if (userRet == 0)
             {
-                string error = session.sLastErrorMsg ?? "Unknown error";
+                string error = "";
+                try { error = session.sLastErrorMsg ?? "Unknown error"; } catch { error = "Could not get error message"; }
                 throw new InvalidOperationException($"Failed to authenticate user '{_config.Username}': {error}");
             }
             
             // Set company
-            _logger.LogDebug("Setting company: {Company}", _config.Company);
-            int companyRet = session.nSetCompany(_config.Company);
+            _logger.LogInformation("Setting company: {Company}", _config.Company);
+            object companyRetObj;
+            try
+            {
+                companyRetObj = session.nSetCompany(_config.Company);
+            }
+            catch (COMException comEx)
+            {
+                _logger.LogError(comEx, "nSetCompany COM error");
+                throw;
+            }
+            
+            int companyRet = companyRetObj != null ? Convert.ToInt32(companyRetObj) : 0;
+            _logger.LogInformation("nSetCompany returned: {Result}", companyRet);
+            
             if (companyRet == 0)
             {
-                string error = session.sLastErrorMsg ?? "Unknown error";
+                string error = "";
+                try { error = session.sLastErrorMsg ?? "Unknown error"; } catch { error = "Could not get error message"; }
                 throw new InvalidOperationException($"Failed to set company '{_config.Company}': {error}");
             }
 
@@ -113,6 +162,7 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             {
                 session.nSetModule("S/O");
                 session.nSetDate("S/O", DateTime.Now.ToString("yyyyMMdd"));
+                _logger.LogDebug("Set module and date context");
             }
             catch (Exception ex)
             {
@@ -128,7 +178,7 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
                 LastUsed = DateTime.UtcNow
             };
 
-            _logger.LogDebug("Successfully created new session {SessionId}", wrapper.SessionId);
+            _logger.LogInformation("Successfully created new session {SessionId}", wrapper.SessionId);
             return wrapper;
         }
         catch (COMException comEx)
@@ -150,13 +200,21 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             throw new ObjectDisposedException(nameof(ProvideXSessionManager));
         }
 
+        _logger.LogDebug("GetSessionAsync called. Available: {Available}, Active: {Active}", 
+            _availableSessions.Count, _activeSessions.Count);
+
         EnsureInitialized();
 
+        _logger.LogDebug("After EnsureInitialized. Available: {Available}, Active: {Active}", 
+            _availableSessions.Count, _activeSessions.Count);
+
         // Wait for an available slot (with timeout)
+        _logger.LogDebug("Waiting for semaphore...");
         if (!await _semaphore.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken))
         {
             throw new TimeoutException("Timeout waiting for available session");
         }
+        _logger.LogDebug("Semaphore acquired. Trying to get session from pool...");
 
         try
         {
@@ -165,12 +223,14 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             {
                 session.LastUsed = DateTime.UtcNow;
                 _activeSessions.TryAdd(session.SessionId, session);
-                _logger.LogDebug("Retrieved session {SessionId} from pool", session.SessionId);
+                _logger.LogInformation("Retrieved session {SessionId} from pool. Available: {Available}, Active: {Active}", 
+                    session.SessionId, _availableSessions.Count, _activeSessions.Count);
                 return session;
             }
 
             // If no session available, create a new one
-            _logger.LogWarning("No sessions available in pool, creating new session");
+            _logger.LogWarning("No sessions available in pool (Available: {Available}, Active: {Active}), creating new session",
+                _availableSessions.Count, _activeSessions.Count);
             var newSession = CreateNewSession();
             _activeSessions.TryAdd(newSession.SessionId, newSession);
             return newSession;
