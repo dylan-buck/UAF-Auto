@@ -272,17 +272,38 @@ try
     catch (Exception ex)
     {
         Console.WriteLine($"    nAddLine failed: {ex.Message}");
-        // Try dynamic
-        try
-        {
-            addLineRetObj = lines.nAddLine();
-            Console.WriteLine($"    nAddLine (dynamic) returned: {addLineRetObj}");
-        }
-        catch (Exception ex2)
-        {
-            Console.WriteLine($"    nAddLine (dynamic) also failed: {ex2.Message}");
-        }
     }
+    
+    // Try to position on the line
+    Console.WriteLine("[12c] Trying to position on line...");
+    try
+    {
+        object? moveRes = linesType2.InvokeMember("nMoveFirst", BindingFlags.InvokeMethod, null, workingLines, null);
+        Console.WriteLine($"    nMoveFirst returned: {moveRes}");
+    }
+    catch (Exception ex) { Console.WriteLine($"    nMoveFirst: {ex.Message}"); }
+    
+    try
+    {
+        object? moveRes = linesType2.InvokeMember("nMoveLast", BindingFlags.InvokeMethod, null, workingLines, null);
+        Console.WriteLine($"    nMoveLast returned: {moveRes}");
+    }
+    catch (Exception ex) { Console.WriteLine($"    nMoveLast: {ex.Message}"); }
+    
+    try
+    {
+        object? editRes = linesType2.InvokeMember("nEditLine", BindingFlags.InvokeMethod, null, workingLines, null);
+        Console.WriteLine($"    nEditLine returned: {editRes}");
+    }
+    catch (Exception ex) { Console.WriteLine($"    nEditLine: {ex.Message}"); }
+    
+    // Check if there's a current line object
+    try
+    {
+        object? currLine = linesType2.InvokeMember("oCurrentLine", BindingFlags.GetProperty, null, workingLines, null);
+        Console.WriteLine($"    oCurrentLine: {currLine?.GetType().Name ?? "null"}");
+    }
+    catch (Exception ex) { Console.WriteLine($"    oCurrentLine: {ex.Message}"); }
     
     // Step 12b: Explore the lines object
     Console.WriteLine("[12b] Exploring lines object methods and properties...");
