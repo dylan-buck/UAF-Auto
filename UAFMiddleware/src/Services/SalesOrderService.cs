@@ -107,23 +107,41 @@ public class SalesOrderService : ISalesOrderService
             foreach (var line in request.Lines)
             {
                 lineNum++;
-                _logger.LogDebug("Adding line {LineNum}: {ItemCode} x {Quantity}", 
+                _logger.LogInformation("Adding line {LineNum}: {ItemCode} x {Quantity}", 
                     lineNum, line.ItemCode, line.Quantity);
 
                 // Add new line
                 int addLineRet = salesOrder.nAddLine();
+                _logger.LogInformation("nAddLine returned: {Result}", addLineRet);
+                
                 if (addLineRet == 0)
                 {
                     string lineError = salesOrder.sLastErrorMsg ?? "Unknown error";
                     _logger.LogWarning("nAddLine warning: {Error}", lineError);
                 }
 
-                salesOrder.nSetValue("ItemCode$", line.ItemCode);
-                salesOrder.nSetValue("QuantityOrdered", line.Quantity);
+                // Set item code first - this triggers Sage to load item defaults
+                int itemResult = salesOrder.nSetValue("ItemCode$", line.ItemCode);
+                _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", line.ItemCode, itemResult);
+                if (itemResult == 0)
+                {
+                    string itemError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                    _logger.LogWarning("ItemCode$ set warning: {Error}", itemError);
+                }
+                
+                // Set quantity
+                int qtyResult = salesOrder.nSetValue("QuantityOrdered", line.Quantity);
+                _logger.LogInformation("Set QuantityOrdered = {Qty}, result: {Result}", line.Quantity, qtyResult);
+                if (qtyResult == 0)
+                {
+                    string qtyError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                    _logger.LogWarning("QuantityOrdered set warning: {Error}", qtyError);
+                }
                 
                 if (line.UnitPrice.HasValue)
                 {
-                    salesOrder.nSetValue("UnitPrice", line.UnitPrice.Value);
+                    int priceResult = salesOrder.nSetValue("UnitPrice", line.UnitPrice.Value);
+                    _logger.LogInformation("Set UnitPrice = {Price}, result: {Result}", line.UnitPrice.Value, priceResult);
                 }
                 
                 if (!string.IsNullOrEmpty(line.Description))
@@ -136,7 +154,7 @@ public class SalesOrderService : ISalesOrderService
                     salesOrder.nSetValue("WarehouseCode$", line.WarehouseCode);
                 }
 
-                _logger.LogDebug("Line {LineNum} added: {ItemCode} x {Quantity}", lineNum, line.ItemCode, line.Quantity);
+                _logger.LogInformation("Line {LineNum} setup complete", lineNum);
             }
 
             // Write the order (final commit)
