@@ -163,36 +163,56 @@ If Err.Number <> 0 Then
     Err.Clear
 End If
 
-' Step 13: Set ItemCode$ using direct notation
-WScript.Echo "[13] Setting ItemCode$ = " & ItemCode & " using oSO.oLines..."
+' Step 13: Try multiple approaches for ItemCode$
+WScript.Echo "[13] Setting ItemCode$ = " & ItemCode
+WScript.Echo "    [13a] Trying nSetValue..."
 retVal = oSO.oLines.nSetValue("ItemCode$", CStr(ItemCode))
-WScript.Echo "    Result: " & retVal
+WScript.Echo "        nSetValue result: [" & retVal & "]"
 If Err.Number <> 0 Then
-    WScript.Echo "    COM Error: " & Err.Description
+    WScript.Echo "        COM Error: " & Err.Description
     Err.Clear
 End If
-If retVal = 0 Or retVal = "" Then
-    WScript.Echo "    sLastErrorMsg: " & oSO.oLines.sLastErrorMsg
-    If Err.Number <> 0 Then Err.Clear
+
+WScript.Echo "    [13b] Trying SetValue (no n prefix)..."
+retVal = oSO.oLines.SetValue("ItemCode$", CStr(ItemCode))
+WScript.Echo "        SetValue result: [" & retVal & "]"
+If Err.Number <> 0 Then
+    WScript.Echo "        COM Error: " & Err.Description
+    Err.Clear
+End If
+
+WScript.Echo "    [13c] Trying nSetKeyValue..."
+retVal = oSO.oLines.nSetKeyValue("ItemCode$", CStr(ItemCode))
+WScript.Echo "        nSetKeyValue result: [" & retVal & "]"
+If Err.Number <> 0 Then
+    WScript.Echo "        COM Error: " & Err.Description
+    Err.Clear
+End If
+
+' Check what columns the lines object actually has
+WScript.Echo "    [13d] Checking columns via nGetValue..."
+Dim testVal
+testVal = ""
+retVal = oSO.oLines.nGetValue("ItemCode$", testVal)
+WScript.Echo "        nGetValue ItemCode$ result: " & retVal & ", value: [" & testVal & "]"
+If Err.Number <> 0 Then
+    WScript.Echo "        COM Error: " & Err.Description
+    Err.Clear
 End If
 
 ' Step 14: Set QuantityOrdered
-WScript.Echo "[14] Setting QuantityOrdered = " & Quantity & " using oSO.oLines..."
+WScript.Echo "[14] Setting QuantityOrdered = " & Quantity
 retVal = oSO.oLines.nSetValue("QuantityOrdered", CDbl(Quantity))
-WScript.Echo "    Result: " & retVal
+WScript.Echo "    Result: [" & retVal & "]"
 If Err.Number <> 0 Then
     WScript.Echo "    COM Error: " & Err.Description
     Err.Clear
 End If
-If retVal = 0 Or retVal = "" Then
-    WScript.Echo "    sLastErrorMsg: " & oSO.oLines.sLastErrorMsg
-    If Err.Number <> 0 Then Err.Clear
-End If
 
 ' Step 15: Set WarehouseCode$
-WScript.Echo "[15] Setting WarehouseCode$ = " & WarehouseCode & " using oSO.oLines..."
+WScript.Echo "[15] Setting WarehouseCode$ = " & WarehouseCode
 retVal = oSO.oLines.nSetValue("WarehouseCode$", WarehouseCode)
-WScript.Echo "    Result: " & retVal
+WScript.Echo "    Result: [" & retVal & "]"
 If Err.Number <> 0 Then
     WScript.Echo "    COM Error: " & Err.Description
     Err.Clear
@@ -201,7 +221,7 @@ End If
 ' Step 16: Write Line
 WScript.Echo "[16] Writing line (oSO.oLines.nWrite)..."
 retVal = oSO.oLines.nWrite()
-WScript.Echo "    nWrite returned: " & retVal
+WScript.Echo "    nWrite returned: [" & retVal & "]"
 If Err.Number <> 0 Then
     WScript.Echo "    COM Error: " & Err.Description
     Err.Clear
