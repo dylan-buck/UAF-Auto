@@ -1,0 +1,32 @@
+{
+  "customerNumber": "CUST001",
+  "poNumber": "PO-2025-001",
+  "orderDate": "20251107",
+  "comment": "Test order from API",
+  "shipToAddress": {
+    "name": "Test Customer",
+    "address1": "123 Main Street",
+    "address2": "Suite 100",
+    "city": "Dallas",
+    "state": "TX",
+    "zipCode": "75201",
+    "country": "US"
+  },
+  "lines": [
+    {
+      "itemCode": "FILTER-001",
+      "quantity": 10,
+      "unitPrice": 25.50,
+      "description": "Standard Air Filter"
+    },
+    {
+      "itemCode": "FILTER-002",
+      "quantity": 5,
+      "unitPrice": 45.00,
+      "description": "Premium Air Filter"
+    }
+  ],
+  "async": false,
+  "priority": "normal"
+}
+

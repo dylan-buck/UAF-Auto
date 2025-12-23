@@ -1,0 +1,25 @@
+{
+  "customerNumber": "REPLACE_WITH_REAL_CUSTOMER",
+  "poNumber": "TEST-001",
+  "orderDate": "",
+  "comment": "Test order from API",
+  "arDivisionNo": "00",
+  "shipToAddress": {
+    "name": "Test Ship To",
+    "address1": "123 Test Street",
+    "city": "Dallas",
+    "state": "TX",
+    "zipCode": "75001"
+  },
+  "lines": [
+    {
+      "itemCode": "REPLACE_WITH_REAL_ITEM",
+      "quantity": 1,
+      "description": "Test Item"
+    }
+  ]
+}
+
+
+
+

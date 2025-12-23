@@ -1,0 +1,38 @@
+# Environment files with credentials
+.env
+.env.local
+.env.production
+*.local.json
+appsettings.Local.json
+appsettings.Production.json
+
+# Build outputs
+node_modules/
+bin/
+obj/
+publish/
+dist/
+UAF-Middleware-v1.0/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Compiled executables
+*.exe
+*.dll
+*.pdb
+
+# Docker
+docker-compose.override.yml

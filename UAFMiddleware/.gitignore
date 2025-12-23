@@ -1,0 +1,24 @@
+# Build outputs
+bin/
+obj/
+publish/
+UAF-Middleware-v1.0/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+
+# Local settings with credentials (keep appsettings.json as template)
+appsettings.Local.json
+appsettings.Production.json
+
+# OS
+.DS_Store
+Thumbs.db
+

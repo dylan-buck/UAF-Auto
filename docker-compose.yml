@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # Node.js API Service
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: uaf-api
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - API_PORT=3000
+      - API_KEY=${API_KEY}
+      - BOI_SERVICE_URL=http://sage-boi-service:5000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - QUEUE_CHECK_INTERVAL=${QUEUE_CHECK_INTERVAL:-10000}
+      - QUEUE_MAX_RETRIES=${QUEUE_MAX_RETRIES:-3}
+      - QUEUE_RETRY_DELAY=${QUEUE_RETRY_DELAY:-30000}
+      - JOB_COMPLETED_TTL=${JOB_COMPLETED_TTL:-604800}
+      - JOB_FAILED_TTL=${JOB_FAILED_TTL:-0}
+    volumes:
+      - ./logs/api:/app/logs
+      - ./api/src:/app/src:ro
+    depends_on:
+      - redis
+      - sage-boi-service
+    restart: unless-stopped
+    networks:
+      - uaf-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # .NET BOI Service
+  sage-boi-service:
+    build:
+      context: ./sage-boi-service
+      dockerfile: Dockerfile
+    container_name: uaf-boi-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=${NODE_ENV:-Development}
+      - ASPNETCORE_URLS=http://+:5000
+      - Sage__Username=${SAGE_USERNAME}
+      - Sage__Password=${SAGE_PASSWORD}
+      - Sage__Company=${SAGE_COMPANY}
+      - Sage__ServerPath=${SAGE_SERVER_PATH}
+      - Sage__SessionPoolSize=${BOI_SESSION_POOL_SIZE:-3}
+      - Sage__SessionTimeout=${BOI_SESSION_TIMEOUT:-300}
+    volumes:
+      - ./logs/boi-service:/app/logs
+    restart: unless-stopped
+    networks:
+      - uaf-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for queue and job tracking
+  redis:
+    image: redis:7-alpine
+    container_name: uaf-redis
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - uaf-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+networks:
+  uaf-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+
