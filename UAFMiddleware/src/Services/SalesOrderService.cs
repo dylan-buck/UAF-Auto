@@ -82,11 +82,15 @@ public class SalesOrderService : ISalesOrderService
             string nextOrderNo = GetNextSalesOrderNumber(salesOrder);
             _logger.LogInformation("Generated sales order number: {OrderNo}", nextOrderNo);
 
-            // Set the key to initialize the new order
-            _logger.LogInformation("Calling nSetKey with order number {OrderNo}...", nextOrderNo);
-            object setKeyResultObj = salesOrder.nSetKey(nextOrderNo);
+            // Set the key to initialize the new order using nSetKeyValue + nSetKey() pattern (matches working VBScript)
+            _logger.LogInformation("Setting key using nSetKeyValue + nSetKey() pattern...");
+            object setKeyValueResultObj = salesOrder.nSetKeyValue("SalesOrderNo$", nextOrderNo);
+            int setKeyValueResult = setKeyValueResultObj != null ? Convert.ToInt32(setKeyValueResultObj) : 0;
+            _logger.LogInformation("nSetKeyValue('SalesOrderNo$', '{OrderNo}') returned: {Result}", nextOrderNo, setKeyValueResult);
+            
+            object setKeyResultObj = salesOrder.nSetKey();
             int setKeyResult = setKeyResultObj != null ? Convert.ToInt32(setKeyResultObj) : 0;
-            _logger.LogInformation("nSetKey('{OrderNo}') returned: {Result}", nextOrderNo, setKeyResult);
+            _logger.LogInformation("nSetKey() returned: {Result}", setKeyResult);
             
             if (setKeyResult == 0)
             {
@@ -176,7 +180,7 @@ public class SalesOrderService : ISalesOrderService
 
                 // IMPORTANT: Set ItemCode$ FIRST - this loads item defaults (pricing, warehouse, etc.)
                 _logger.LogInformation("Setting ItemCode$ = '{ItemCode}'...", line.ItemCode);
-                object itemResultObj;
+                object? itemResultObj;
                 try
                 {
                     itemResultObj = lines.nSetValue("ItemCode$", line.ItemCode);
@@ -186,7 +190,13 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogError(comEx, "COM exception setting ItemCode$");
                     throw;
                 }
-                int itemResult = itemResultObj != null ? Convert.ToInt32(itemResultObj) : 0;
+                
+                // Handle empty/null returns - treat as failure
+                int itemResult = 0;
+                if (itemResultObj != null && !string.IsNullOrEmpty(itemResultObj.ToString()))
+                {
+                    itemResult = Convert.ToInt32(itemResultObj);
+                }
                 _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", line.ItemCode, itemResult);
                 
                 if (itemResult == 0)
