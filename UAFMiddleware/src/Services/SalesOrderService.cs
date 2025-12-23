@@ -102,6 +102,10 @@ public class SalesOrderService : ISalesOrderService
                 SetShipToAddress(salesOrder, request.ShipToAddress);
             }
 
+            // Get the lines object - this is where we set line item values
+            dynamic lines = salesOrder.oLines;
+            _logger.LogInformation("Got oLines object");
+
             // Add line items
             int lineNum = 0;
             foreach (var line in request.Lines)
@@ -110,48 +114,57 @@ public class SalesOrderService : ISalesOrderService
                 _logger.LogInformation("Adding line {LineNum}: {ItemCode} x {Quantity}", 
                     lineNum, line.ItemCode, line.Quantity);
 
-                // Add new line
-                int addLineRet = salesOrder.nAddLine();
-                _logger.LogInformation("nAddLine returned: {Result}", addLineRet);
+                // Add new line to the lines object
+                int addLineRet = lines.nAddLine();
+                _logger.LogInformation("oLines.nAddLine returned: {Result}", addLineRet);
                 
                 if (addLineRet == 0)
                 {
-                    string lineError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                    string lineError = lines.sLastErrorMsg ?? "Unknown error";
                     _logger.LogWarning("nAddLine warning: {Error}", lineError);
                 }
 
-                // Set item code first - this triggers Sage to load item defaults
-                int itemResult = salesOrder.nSetValue("ItemCode$", line.ItemCode);
+                // Set item code on the lines object
+                int itemResult = lines.nSetValue("ItemCode$", line.ItemCode);
                 _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", line.ItemCode, itemResult);
                 if (itemResult == 0)
                 {
-                    string itemError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                    string itemError = lines.sLastErrorMsg ?? "Unknown error";
                     _logger.LogWarning("ItemCode$ set warning: {Error}", itemError);
                 }
                 
-                // Set quantity
-                int qtyResult = salesOrder.nSetValue("QuantityOrdered", line.Quantity);
+                // Set quantity on the lines object
+                int qtyResult = lines.nSetValue("QuantityOrdered", line.Quantity);
                 _logger.LogInformation("Set QuantityOrdered = {Qty}, result: {Result}", line.Quantity, qtyResult);
                 if (qtyResult == 0)
                 {
-                    string qtyError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                    string qtyError = lines.sLastErrorMsg ?? "Unknown error";
                     _logger.LogWarning("QuantityOrdered set warning: {Error}", qtyError);
                 }
                 
                 if (line.UnitPrice.HasValue)
                 {
-                    int priceResult = salesOrder.nSetValue("UnitPrice", line.UnitPrice.Value);
+                    int priceResult = lines.nSetValue("UnitPrice", line.UnitPrice.Value);
                     _logger.LogInformation("Set UnitPrice = {Price}, result: {Result}", line.UnitPrice.Value, priceResult);
                 }
                 
                 if (!string.IsNullOrEmpty(line.Description))
                 {
-                    salesOrder.nSetValue("ItemCodeDesc$", line.Description);
+                    lines.nSetValue("ItemCodeDesc$", line.Description);
                 }
                 
                 if (!string.IsNullOrEmpty(line.WarehouseCode))
                 {
-                    salesOrder.nSetValue("WarehouseCode$", line.WarehouseCode);
+                    lines.nSetValue("WarehouseCode$", line.WarehouseCode);
+                }
+
+                // Write the line
+                int lineWriteResult = lines.nWrite();
+                _logger.LogInformation("oLines.nWrite returned: {Result}", lineWriteResult);
+                if (lineWriteResult == 0)
+                {
+                    string lineWriteError = lines.sLastErrorMsg ?? "Unknown error";
+                    _logger.LogWarning("Line write warning: {Error}", lineWriteError);
                 }
 
                 _logger.LogInformation("Line {LineNum} setup complete", lineNum);
