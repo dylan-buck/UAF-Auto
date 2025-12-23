@@ -194,10 +194,20 @@ try
     salesOrder.nSetValue("CustomerPONo$", "TEST-ORDER-001");
     salesOrder.nSetValue("OrderDate$", DateTime.Now.ToString("yyyyMMdd"));
 
-    // Step 11: Get lines object
-    Console.WriteLine("[11] Getting oLines object...");
-    dynamic lines = salesOrder.oLines;
-    Console.WriteLine("    SUCCESS: Got oLines");
+    // Step 11: Get lines object via InvokeMember
+    Console.WriteLine("[11] Getting oLines object via InvokeMember...");
+    Type soType = ((object)salesOrder).GetType();
+    object linesObj = soType.InvokeMember(
+        "oLines",
+        BindingFlags.GetProperty,
+        null,
+        salesOrder,
+        null
+    ) ?? throw new Exception("oLines returned null");
+    Console.WriteLine($"    Got oLines, type: {linesObj.GetType().Name}");
+    
+    // Cast to dynamic for easier use
+    dynamic lines = linesObj;
 
     // Step 11b: Check what columns are available
     Console.WriteLine("[11b] Checking available columns on lines object...");
@@ -221,9 +231,16 @@ try
         Console.WriteLine($"    Could not get columns: {ex.Message}");
     }
 
-    // Step 12: Add line
-    Console.WriteLine("[12] Adding line with nAddLine()...");
-    object? addLineRetObj = lines.nAddLine();
+    // Step 12: Add line via InvokeMember
+    Console.WriteLine("[12] Adding line with nAddLine() via InvokeMember...");
+    Type linesType2 = linesObj.GetType();
+    object? addLineRetObj = linesType2.InvokeMember(
+        "nAddLine",
+        BindingFlags.InvokeMethod,
+        null,
+        linesObj,
+        null
+    );
     Console.WriteLine($"    nAddLine returned: {addLineRetObj}");
     
     // Step 12b: Explore the lines object
@@ -253,19 +270,17 @@ try
 
     // Step 13: Try using Type.InvokeMember for proper late binding
     Console.WriteLine($"[13] Setting ItemCode$ = '{itemCode}' using InvokeMember...");
-    
-    Type linesType = ((object)lines).GetType();
-    Console.WriteLine($"    Lines object type: {linesType.Name}");
+    Console.WriteLine($"    Lines object type: {linesType2.Name}");
     
     // Try nSetValue via InvokeMember
     Console.WriteLine("    [13a] Calling nSetValue via InvokeMember...");
     try
     {
-        object? result = linesType.InvokeMember(
+        object? result = linesType2.InvokeMember(
             "nSetValue",
             BindingFlags.InvokeMethod,
             null,
-            lines,
+            linesObj,
             new object[] { "ItemCode$", itemCode }
         );
         Console.WriteLine($"      Result: {result} (type: {result?.GetType().Name ?? "null"})");
@@ -275,100 +290,81 @@ try
         Console.WriteLine($"      Error: {ex.Message}");
     }
     
-    // Try to read the value back
-    Console.WriteLine("    [13b] Reading ItemCode$ via InvokeMember sValue...");
+    // Try to read the value back using GetValue
+    Console.WriteLine("    [13b] Reading ItemCode$ via InvokeMember GetValue...");
     try
     {
-        object? result = linesType.InvokeMember(
-            "sValue",
+        string readValue = "";
+        object[] getValArgs = new object[] { "ItemCode$", readValue };
+        ParameterModifier[] getMods = new ParameterModifier[1];
+        getMods[0] = new ParameterModifier(2);
+        getMods[0][1] = true; // Second arg is ByRef
+        
+        object? result = linesType2.InvokeMember(
+            "nGetValue",
             BindingFlags.InvokeMethod,
             null,
-            lines,
-            new object[] { "ItemCode$" }
+            linesObj,
+            getValArgs,
+            getMods,
+            null,
+            null
         );
-        Console.WriteLine($"      ItemCode$ = '{result}'");
+        Console.WriteLine($"      nGetValue result: {result}, ItemCode$ = '{getValArgs[1]}'");
     }
     catch (Exception ex)
     {
         Console.WriteLine($"      Error: {ex.Message}");
     }
     
-    // Try to get columns list
-    Console.WriteLine("    [13c] Getting sColumns via InvokeMember...");
+    // Try listing methods on the object
+    Console.WriteLine("    [13c] Exploring COM object methods...");
     try
     {
-        object? result = linesType.InvokeMember(
-            "sColumns",
-            BindingFlags.GetProperty,
-            null,
-            lines,
-            null
-        );
-        Console.WriteLine($"      sColumns = '{result?.ToString()?.Substring(0, Math.Min(200, result?.ToString()?.Length ?? 0))}'...");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"      Error: {ex.Message}");
-    }
-    
-    // Try direct property access for ItemCode
-    Console.WriteLine("    [13d] Trying to set ItemCode$ as property...");
-    try
-    {
-        linesType.InvokeMember(
-            "ItemCode$",
-            BindingFlags.SetProperty,
-            null,
-            lines,
-            new object[] { itemCode }
-        );
-        Console.WriteLine("      No exception - checking value...");
-        
-        object? checkResult = linesType.InvokeMember(
-            "ItemCode$",
-            BindingFlags.GetProperty,
-            null,
-            lines,
-            null
-        );
-        Console.WriteLine($"      ItemCode$ = '{checkResult}'");
+        // Get IDispatch type info if possible
+        var typeLib = System.Runtime.InteropServices.Marshal.GetIDispatchForObject(linesObj);
+        Console.WriteLine($"      Got IDispatch pointer");
+        System.Runtime.InteropServices.Marshal.Release(typeLib);
     }
     catch (Exception ex)
     {
         Console.WriteLine($"      Error: {ex.Message}");
     }
 
-    // Step 14: Set quantity
-    Console.WriteLine($"[14] Setting QuantityOrdered = {quantity}...");
+    // Step 14: Set quantity via InvokeMember
+    Console.WriteLine($"[14] Setting QuantityOrdered = {quantity} via InvokeMember...");
     try
     {
-        object? qtyRetObj = lines.nSetValue("QuantityOrdered", (double)quantity);
-        Console.WriteLine($"    Raw result: {qtyRetObj} (type: {qtyRetObj?.GetType().Name ?? "null"})");
-        int qtyRet = qtyRetObj != null ? Convert.ToInt32(qtyRetObj) : -1;
-        Console.WriteLine($"    Converted result: {qtyRet}");
-        if (qtyRet == 0)
-        {
-            string qtyError = "";
-            try { qtyError = lines.sLastErrorMsg ?? ""; } catch { }
-            Console.WriteLine($"    Error: '{qtyError}'");
-        }
+        object? qtyRetObj = linesType2.InvokeMember(
+            "nSetValue",
+            BindingFlags.InvokeMethod,
+            null,
+            linesObj,
+            new object[] { "QuantityOrdered", (double)quantity }
+        );
+        Console.WriteLine($"    Result: {qtyRetObj} (type: {qtyRetObj?.GetType().Name ?? "null"})");
     }
     catch (Exception ex)
     {
         Console.WriteLine($"    Exception: {ex.Message}");
     }
 
-    // Step 15: Write line
-    Console.WriteLine("[15] Writing line with oLines.nWrite()...");
-    object? lineWriteRetObj = lines.nWrite();
-    Console.WriteLine($"    Raw result: {lineWriteRetObj} (type: {lineWriteRetObj?.GetType().Name ?? "null"})");
-    int lineWriteRet = lineWriteRetObj != null ? Convert.ToInt32(lineWriteRetObj) : -1;
-    Console.WriteLine($"    Converted result: {lineWriteRet}");
-    if (lineWriteRet != 1 && lineWriteRet != -1)
+    // Step 15: Write line via InvokeMember
+    Console.WriteLine("[15] Writing line with oLines.nWrite() via InvokeMember...");
+    try
     {
-        string lineError = "";
-        try { lineError = lines.sLastErrorMsg ?? ""; } catch { }
-        Console.WriteLine($"    Warning/Error: '{lineError}'");
+        object? lineWriteRetObj = linesType2.InvokeMember(
+            "nWrite",
+            BindingFlags.InvokeMethod,
+            null,
+            linesObj,
+            null
+        );
+        Console.WriteLine($"    Result: {lineWriteRetObj} (type: {lineWriteRetObj?.GetType().Name ?? "null"})");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"    Exception: {ex.Message}");
     }
 
     // Step 16: Write order
