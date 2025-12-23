@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using UAFMiddleware.Models;
 
@@ -76,32 +77,22 @@ public class SalesOrderService : ISalesOrderService
             }
             _logger.LogInformation("SO_SalesOrder_bus object created successfully");
 
-            // Get next sales order number using nSetKey with empty string
-            // This tells Sage to assign the next available number automatically
-            _logger.LogInformation("Calling nSetKey with empty string to create new order...");
-            object setKeyResultObj = salesOrder.nSetKey("");
+            // Get next sales order number
+            _logger.LogInformation("Getting next sales order number...");
+            string nextOrderNo = GetNextSalesOrderNumber(salesOrder);
+            _logger.LogInformation("Generated sales order number: {OrderNo}", nextOrderNo);
+
+            // Set the key to initialize the new order
+            _logger.LogInformation("Calling nSetKey with order number {OrderNo}...", nextOrderNo);
+            object setKeyResultObj = salesOrder.nSetKey(nextOrderNo);
             int setKeyResult = setKeyResultObj != null ? Convert.ToInt32(setKeyResultObj) : 0;
-            _logger.LogInformation("nSetKey('') returned: {Result}", setKeyResult);
+            _logger.LogInformation("nSetKey('{OrderNo}') returned: {Result}", nextOrderNo, setKeyResult);
             
             if (setKeyResult == 0)
             {
                 string setKeyError = salesOrder.sLastErrorMsg ?? "Unknown error";
-                _logger.LogError("Failed to set key for new order: {Error}", setKeyError);
-                sessionCorrupted = true;
-                throw new InvalidOperationException($"Failed to initialize new sales order: {setKeyError}");
-            }
-            
-            // Get the assigned order number
-            string nextOrderNo = "";
-            try
-            {
-                object orderNoObj = salesOrder.sValue("SalesOrderNo$");
-                nextOrderNo = orderNoObj?.ToString() ?? "";
-                _logger.LogInformation("Assigned sales order number: {OrderNo}", nextOrderNo);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not retrieve assigned order number, continuing anyway");
+                _logger.LogError("Failed to set key for order {OrderNo}: {Error}", nextOrderNo, setKeyError);
+                throw new InvalidOperationException($"Failed to initialize sales order {nextOrderNo}: {setKeyError}");
             }
 
             // Set header information
@@ -331,6 +322,51 @@ public class SalesOrderService : ISalesOrderService
                     _sessionManager.ReleaseSession(session);
                 }
             }
+        }
+    }
+
+    private string GetNextSalesOrderNumber(dynamic salesOrder)
+    {
+        try
+        {
+            // Use reflection for ByRef parameter handling
+            object[] args = new object[] { "" };
+            ParameterModifier[] modifiers = new ParameterModifier[1];
+            modifiers[0] = new ParameterModifier(1);
+            modifiers[0][0] = true; // First arg is ByRef
+
+            _logger.LogDebug("Calling nGetNextSalesOrderNo via reflection...");
+            salesOrder.GetType().InvokeMember(
+                "nGetNextSalesOrderNo",
+                BindingFlags.InvokeMethod,
+                null,
+                salesOrder,
+                args,
+                modifiers,
+                null,
+                null
+            );
+            
+            string result = args[0]?.ToString() ?? "";
+            _logger.LogDebug("nGetNextSalesOrderNo returned: {OrderNo}", result);
+            
+            if (string.IsNullOrEmpty(result))
+            {
+                throw new InvalidOperationException("nGetNextSalesOrderNo returned empty string");
+            }
+            
+            return result;
+        }
+        catch (TargetInvocationException tie) when (tie.InnerException is COMException comEx)
+        {
+            string errorMsg = salesOrder.sLastErrorMsg ?? comEx.Message;
+            _logger.LogError(comEx, "COM error in nGetNextSalesOrderNo: {Error}", errorMsg);
+            throw new InvalidOperationException($"Failed to get next sales order number: {errorMsg}", comEx);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in GetNextSalesOrderNumber");
+            throw new InvalidOperationException($"Failed to get next sales order number: {ex.Message}", ex);
         }
     }
 

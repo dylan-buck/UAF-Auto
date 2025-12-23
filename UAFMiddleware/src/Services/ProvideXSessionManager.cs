@@ -213,22 +213,10 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             DisposeSession(session);
             
             // Release semaphore but don't add session back to pool
+            // A new session will be created lazily on the next GetSessionAsync call
             _semaphore.Release();
             
-            // Create a new replacement session in the background
-            Task.Run(() =>
-            {
-                try
-                {
-                    var newSession = CreateNewSession();
-                    _availableSessions.Add(newSession);
-                    _logger.LogInformation("Created replacement session {SessionId} for invalidated session", newSession.SessionId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to create replacement session");
-                }
-            });
+            _logger.LogInformation("Session {SessionId} invalidated. A new session will be created on next request.", session.SessionId);
         }
         catch (Exception ex)
         {
