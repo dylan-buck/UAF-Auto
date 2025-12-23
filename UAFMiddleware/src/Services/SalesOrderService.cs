@@ -136,19 +136,7 @@ public class SalesOrderService : ISalesOrderService
                     salesOrder.nSetValue("WarehouseCode$", line.WarehouseCode);
                 }
 
-                // Write the line
-                int lineWriteResult = salesOrder.nWrite();
-                if (lineWriteResult != 1)
-                {
-                    string lineWriteError = salesOrder.sLastErrorMsg ?? "Unknown error";
-                    _logger.LogError("Failed to write line {LineNum}: {Error}", lineNum, lineWriteError);
-                    return new SalesOrderResponse
-                    {
-                        Success = false,
-                        ErrorCode = $"LINE_WRITE_ERROR",
-                        ErrorMessage = $"Failed to write line item {lineNum} ({line.ItemCode}): {lineWriteError}"
-                    };
-                }
+                _logger.LogDebug("Line {LineNum} added: {ItemCode} x {Quantity}", lineNum, line.ItemCode, line.Quantity);
             }
 
             // Write the order (final commit)
