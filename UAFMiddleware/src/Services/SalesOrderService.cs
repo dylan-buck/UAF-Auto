@@ -175,22 +175,68 @@ public class SalesOrderService : ISalesOrderService
                 }
 
                 // IMPORTANT: Set ItemCode$ FIRST - this loads item defaults (pricing, warehouse, etc.)
-                object itemResultObj = lines.nSetValue("ItemCode$", line.ItemCode);
+                _logger.LogInformation("Setting ItemCode$ = '{ItemCode}'...", line.ItemCode);
+                object itemResultObj;
+                try
+                {
+                    itemResultObj = lines.nSetValue("ItemCode$", line.ItemCode);
+                }
+                catch (COMException comEx)
+                {
+                    _logger.LogError(comEx, "COM exception setting ItemCode$");
+                    throw;
+                }
                 int itemResult = itemResultObj != null ? Convert.ToInt32(itemResultObj) : 0;
                 _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", line.ItemCode, itemResult);
+                
                 if (itemResult == 0)
                 {
-                    string itemError = lines.sLastErrorMsg ?? "Unknown error";
-                    _logger.LogWarning("ItemCode$ set warning: {Error}", itemError);
+                    string itemError = "";
+                    try { itemError = lines.sLastErrorMsg ?? ""; } catch { }
+                    _logger.LogError("ItemCode$ set FAILED. Error: '{Error}'", itemError);
+                    
+                    // Try to get more info about why it failed
+                    try
+                    {
+                        // Check if item exists via CI_Item lookup
+                        dynamic itemObj = session.ProvideXScript.NewObject("CI_Item_bus", session.Session);
+                        object findResult = itemObj.nFind(line.ItemCode);
+                        int found = findResult != null ? Convert.ToInt32(findResult) : 0;
+                        _logger.LogInformation("CI_Item lookup for '{ItemCode}': found={Found}", line.ItemCode, found);
+                        if (found == 0)
+                        {
+                            string findError = itemObj.sLastErrorMsg ?? "";
+                            _logger.LogError("Item '{ItemCode}' not found in CI_Item. Error: {Error}", line.ItemCode, findError);
+                        }
+                        if (Marshal.IsComObject(itemObj)) Marshal.ReleaseComObject(itemObj);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not verify item existence");
+                    }
+                    
+                    // Don't continue with invalid item
+                    throw new InvalidOperationException($"Failed to set ItemCode$ '{line.ItemCode}': {(string.IsNullOrEmpty(itemError) ? "Unknown error - item may not exist" : itemError)}");
                 }
 
                 // Set quantity (convert to double for COM compatibility)
-                object qtyResultObj = lines.nSetValue("QuantityOrdered", Convert.ToDouble(line.Quantity));
+                _logger.LogInformation("Setting QuantityOrdered = {Qty}...", line.Quantity);
+                object qtyResultObj;
+                try
+                {
+                    qtyResultObj = lines.nSetValue("QuantityOrdered", Convert.ToDouble(line.Quantity));
+                }
+                catch (COMException comEx)
+                {
+                    _logger.LogError(comEx, "COM exception setting QuantityOrdered");
+                    throw;
+                }
                 int qtyResult = qtyResultObj != null ? Convert.ToInt32(qtyResultObj) : 0;
                 _logger.LogInformation("Set QuantityOrdered = {Qty}, result: {Result}", line.Quantity, qtyResult);
                 if (qtyResult == 0)
                 {
-                    string qtyError = lines.sLastErrorMsg ?? "Unknown error";
+                    string qtyError = "";
+                    try { qtyError = lines.sLastErrorMsg ?? ""; } catch { }
                     _logger.LogWarning("QuantityOrdered set warning: {Error}", qtyError);
                 }
 
