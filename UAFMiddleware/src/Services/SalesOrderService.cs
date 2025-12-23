@@ -159,8 +159,8 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogWarning("ItemCode$ set warning: {Error}", itemError);
                 }
                 
-                // Set quantity on the lines object
-                object qtyResultObj = lines.nSetValue("QuantityOrdered", line.Quantity);
+                // Set quantity on the lines object (convert to double for COM compatibility)
+                object qtyResultObj = lines.nSetValue("QuantityOrdered", Convert.ToDouble(line.Quantity));
                 int qtyResult = qtyResultObj != null ? Convert.ToInt32(qtyResultObj) : 0;
                 _logger.LogInformation("Set QuantityOrdered = {Qty}, result: {Result}", line.Quantity, qtyResult);
                 if (qtyResult == 0)
