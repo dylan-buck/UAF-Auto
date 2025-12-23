@@ -102,10 +102,22 @@ Else
     WScript.Echo "    nSetKey returned: " & retVal & " (1=exists, 0=not found)"
     If retVal = 1 Then
         WScript.Echo "    Customer FOUND!"
-        Dim custName
+        Dim custName, custStatus, taxSchedule, priceLevel, defaultWhse
         custName = ""
+        custStatus = ""
+        taxSchedule = ""
+        priceLevel = ""
+        defaultWhse = ""
         oCustomer.nGetValue "CustomerName$", custName
+        oCustomer.nGetValue "CustomerStatus$", custStatus
+        oCustomer.nGetValue "TaxSchedule$", taxSchedule
+        oCustomer.nGetValue "PriceLevel$", priceLevel
+        oCustomer.nGetValue "DefaultWarehouseCode$", defaultWhse
         WScript.Echo "    Customer Name: " & custName
+        WScript.Echo "    Status: [" & custStatus & "]"
+        WScript.Echo "    Tax Schedule: [" & taxSchedule & "]"
+        WScript.Echo "    Price Level: [" & priceLevel & "]"
+        WScript.Echo "    Default Warehouse: [" & defaultWhse & "]"
     Else
         WScript.Echo "    Customer NOT FOUND: " & oCustomer.sLastErrorMsg
     End If
