@@ -73,19 +73,20 @@ public class SalesOrderService : ISalesOrderService
 
             // Set header information
             // Parse customer number - might be in format "00-CUSTNO" or just "CUSTNO"
-            string divisionNo = request.ARDivisionNo ?? "00";
+            // Sage 100 customer numbers are max 7 characters, so if we see "XX-XXXXXX" format, split it
+            string divisionNo = "00";
             string customerNo = request.CustomerNumber;
             
-            // If customer number contains a dash and no explicit division, extract division from customer number
-            if (string.IsNullOrEmpty(request.ARDivisionNo) && customerNo.Contains("-"))
+            // Check if customer number is in "XX-XXXXXX" format (division-customerno)
+            if (customerNo.Length > 3 && customerNo[2] == '-')
             {
-                var parts = customerNo.Split('-', 2);
-                if (parts.Length == 2 && parts[0].Length == 2)
-                {
-                    divisionNo = parts[0];
-                    customerNo = parts[1];
-                    _logger.LogInformation("Parsed customer: Division={Division}, CustomerNo={CustomerNo}", divisionNo, customerNo);
-                }
+                divisionNo = customerNo.Substring(0, 2);
+                customerNo = customerNo.Substring(3);
+                _logger.LogInformation("Parsed customer: Division={Division}, CustomerNo={CustomerNo}", divisionNo, customerNo);
+            }
+            else if (!string.IsNullOrEmpty(request.ARDivisionNo))
+            {
+                divisionNo = request.ARDivisionNo;
             }
             
             int divResult = salesOrder.nSetValue("ARDivisionNo$", divisionNo);
