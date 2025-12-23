@@ -85,6 +85,57 @@ If taskId <> 0 Then
     WScript.Echo "    nSetProgram returned: " & retVal
 End If
 
+' Step 6c: Verify customer exists using AR_Customer_svc
+WScript.Echo "[6c] Verifying customer " & ARDivisionNo & "-" & CustomerNo & " exists..."
+Dim oCustomer, custExists
+Set oCustomer = oScript.NewObject("AR_Customer_svc", oSession)
+If Err.Number <> 0 Then
+    WScript.Echo "    Could not create AR_Customer_svc: " & Err.Description
+    Err.Clear
+Else
+    ' Try to find the customer
+    retVal = oCustomer.nSetKeyValue("ARDivisionNo$", ARDivisionNo)
+    WScript.Echo "    Set ARDivisionNo$: " & retVal
+    retVal = oCustomer.nSetKeyValue("CustomerNo$", CustomerNo)
+    WScript.Echo "    Set CustomerNo$: " & retVal
+    retVal = oCustomer.nSetKey()
+    WScript.Echo "    nSetKey returned: " & retVal & " (1=exists, 0=not found)"
+    If retVal = 1 Then
+        WScript.Echo "    Customer FOUND!"
+        Dim custName
+        custName = ""
+        oCustomer.nGetValue "CustomerName$", custName
+        WScript.Echo "    Customer Name: " & custName
+    Else
+        WScript.Echo "    Customer NOT FOUND: " & oCustomer.sLastErrorMsg
+    End If
+    Set oCustomer = Nothing
+End If
+
+' Step 6d: Verify item exists using CI_Item_svc
+WScript.Echo "[6d] Verifying item " & ItemCode & " exists..."
+Dim oItem
+Set oItem = oScript.NewObject("CI_Item_svc", oSession)
+If Err.Number <> 0 Then
+    WScript.Echo "    Could not create CI_Item_svc: " & Err.Description
+    Err.Clear
+Else
+    retVal = oItem.nSetKeyValue("ItemCode$", ItemCode)
+    WScript.Echo "    Set ItemCode$: " & retVal
+    retVal = oItem.nSetKey()
+    WScript.Echo "    nSetKey returned: " & retVal & " (1=exists, 0=not found)"
+    If retVal = 1 Then
+        WScript.Echo "    Item FOUND!"
+        Dim itemDesc
+        itemDesc = ""
+        oItem.nGetValue "ItemCodeDesc$", itemDesc
+        WScript.Echo "    Item Description: " & itemDesc
+    Else
+        WScript.Echo "    Item NOT FOUND: " & oItem.sLastErrorMsg
+    End If
+    Set oItem = Nothing
+End If
+
 ' Step 7: Create SO_SalesOrder_bus
 WScript.Echo "[7] Creating SO_SalesOrder_bus..."
 Set oSO = oScript.NewObject("SO_SalesOrder_bus", oSession)
