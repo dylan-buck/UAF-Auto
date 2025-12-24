@@ -558,6 +558,350 @@ public class CustomerService : ICustomerService
         return false;
     }
 
+    public async Task<CustomerResolutionResponse> ResolveCustomerAsync(
+        CustomerResolutionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Resolving customer: Name={Name}, ShipToCity={City}, ShipToState={State}",
+            request.CustomerName, 
+            request.ShipToAddress?.City,
+            request.ShipToAddress?.State);
+
+        var response = new CustomerResolutionResponse();
+        
+        try
+        {
+            // Step 1: Search for customers by name
+            var searchRequest = new CustomerSearchRequest
+            {
+                Name = ExtractCompanyName(request.CustomerName),
+                Limit = 20  // Get top 20 candidates
+            };
+            
+            var searchResult = await SearchCustomersAsync(searchRequest, cancellationToken);
+            
+            if (searchResult.Customers.Count == 0)
+            {
+                response.Resolved = false;
+                response.Recommendation = "REJECTED";
+                response.Message = $"No customers found matching name '{request.CustomerName}'";
+                return response;
+            }
+            
+            _logger.LogInformation("Found {Count} customer candidates", searchResult.Customers.Count);
+            
+            // Step 2: Score each candidate
+            foreach (var customer in searchResult.Customers)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                
+                // Get full customer details with ship-to addresses
+                var fullCustomer = await GetCustomerAsync(customer.CustomerNumber, cancellationToken);
+                if (fullCustomer == null) continue;
+                
+                var matchResult = ScoreCustomerMatch(request, fullCustomer);
+                matchResult.CustomerDetails = fullCustomer;
+                response.Candidates.Add(matchResult);
+            }
+            
+            // Step 3: Sort by score and get best match
+            response.Candidates = response.Candidates
+                .OrderByDescending(c => c.Score)
+                .ToList();
+            
+            if (response.Candidates.Count == 0)
+            {
+                response.Resolved = false;
+                response.Recommendation = "REJECTED";
+                response.Message = "Could not score any customer matches";
+                return response;
+            }
+            
+            response.BestMatch = response.Candidates.First();
+            response.Confidence = response.BestMatch.Score;
+            
+            // Step 4: Determine recommendation based on confidence
+            if (response.Confidence >= request.MinConfidence)
+            {
+                response.Resolved = true;
+                response.Recommendation = "AUTO_PROCESS";
+                response.Message = $"High confidence match: {response.BestMatch.CustomerName} " +
+                    $"(Score: {response.Confidence:P0})";
+                
+                // Check if this is the default ship-to
+                if (!response.BestMatch.IsDefaultShipTo)
+                {
+                    response.Recommendation = "MANUAL_REVIEW";
+                    response.Message += " - WARNING: Matched ship-to is NOT the default";
+                }
+            }
+            else if (response.Confidence >= 0.5)
+            {
+                response.Resolved = false;
+                response.Recommendation = "MANUAL_REVIEW";
+                response.Message = $"Medium confidence match: {response.BestMatch.CustomerName} " +
+                    $"(Score: {response.Confidence:P0}). Manual verification recommended.";
+            }
+            else
+            {
+                response.Resolved = false;
+                response.Recommendation = "REJECTED";
+                response.Message = $"Low confidence: Best match is {response.BestMatch.CustomerName} " +
+                    $"(Score: {response.Confidence:P0}). Cannot auto-process.";
+            }
+            
+            // Add scoring details
+            response.ScoringDetails = response.BestMatch.ScoreBreakdown.Details;
+            
+            _logger.LogInformation(
+                "Customer resolution: {Recommendation} - {CustomerNumber} ({Score:P0})",
+                response.Recommendation, 
+                response.BestMatch.CustomerNumber, 
+                response.Confidence);
+            
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving customer");
+            throw;
+        }
+    }
+    
+    private CustomerMatchResult ScoreCustomerMatch(
+        CustomerResolutionRequest request, 
+        CustomerDto customer)
+    {
+        var result = new CustomerMatchResult
+        {
+            CustomerNumber = customer.CustomerNumber,
+            CustomerName = customer.CustomerName
+        };
+        
+        var breakdown = new MatchScoreBreakdown();
+        
+        // 1. Score name match (weight: 20%)
+        breakdown.NameScore = ScoreNameMatch(request.CustomerName, customer.CustomerName);
+        breakdown.Details.Add($"Name match: {breakdown.NameScore:P0} " +
+            $"('{request.CustomerName}' vs '{customer.CustomerName}')");
+        
+        // 2. Score ship-to address match (weight: 50% - most important!)
+        if (request.ShipToAddress != null && customer.ShipToAddresses.Count > 0)
+        {
+            var (bestShipTo, shipToScore, isDefault) = FindBestShipToMatch(
+                request.ShipToAddress, customer.ShipToAddresses);
+            
+            breakdown.ShipToScore = shipToScore;
+            result.MatchedShipToCode = bestShipTo?.ShipToCode;
+            result.IsDefaultShipTo = isDefault;
+            result.WarehouseCode = bestShipTo?.WarehouseCode;
+            result.ShipVia = bestShipTo?.ShipVia;
+            
+            breakdown.Details.Add($"Ship-to match: {breakdown.ShipToScore:P0} " +
+                $"(matched code: {result.MatchedShipToCode ?? "none"}, isDefault: {isDefault})");
+            
+            // Bonus for matching default ship-to
+            if (isDefault && shipToScore > 0.7)
+            {
+                breakdown.DefaultShipToBonus = 0.1;
+                breakdown.Details.Add($"Default ship-to bonus: +{breakdown.DefaultShipToBonus:P0}");
+            }
+        }
+        else
+        {
+            breakdown.Details.Add("Ship-to match: N/A (no ship-to data)");
+        }
+        
+        // 3. Score billing address match (weight: 20%)
+        if (request.BillingAddress != null)
+        {
+            breakdown.BillingScore = ScoreAddressMatch(request.BillingAddress, 
+                customer.Address1, customer.City, customer.State, customer.ZipCode);
+            breakdown.Details.Add($"Billing address match: {breakdown.BillingScore:P0}");
+        }
+        
+        // 4. Score phone match (weight: 10%)
+        if (!string.IsNullOrEmpty(request.Phone))
+        {
+            breakdown.PhoneScore = ScorePhoneMatch(request.Phone, customer.Phone);
+            breakdown.Details.Add($"Phone match: {breakdown.PhoneScore:P0}");
+        }
+        
+        // Calculate weighted total score
+        // Ship-to is most important (50%), then name (20%), billing (20%), phone (10%)
+        result.Score = 
+            (breakdown.NameScore * 0.20) +
+            (breakdown.ShipToScore * 0.50) +
+            (breakdown.BillingScore * 0.20) +
+            (breakdown.PhoneScore * 0.10) +
+            breakdown.DefaultShipToBonus;
+        
+        // Cap at 1.0
+        result.Score = Math.Min(1.0, result.Score);
+        
+        result.ScoreBreakdown = breakdown;
+        breakdown.Details.Add($"Total weighted score: {result.Score:P0}");
+        
+        return result;
+    }
+    
+    private double ScoreNameMatch(string requestName, string customerName)
+    {
+        if (string.IsNullOrEmpty(requestName) || string.IsNullOrEmpty(customerName))
+            return 0;
+        
+        var normRequest = NormalizeName(requestName);
+        var normCustomer = NormalizeName(customerName);
+        
+        // Exact match
+        if (normRequest == normCustomer) return 1.0;
+        
+        // One contains the other
+        if (normCustomer.Contains(normRequest) || normRequest.Contains(normCustomer))
+            return 0.9;
+        
+        // Check for significant word overlap
+        var requestWords = normRequest.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var customerWords = normCustomer.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        
+        int matchedWords = requestWords.Count(rw => 
+            customerWords.Any(cw => cw.Contains(rw) || rw.Contains(cw)));
+        
+        if (requestWords.Length > 0)
+            return (double)matchedWords / requestWords.Length * 0.8;
+        
+        return 0;
+    }
+    
+    private string NormalizeName(string name)
+    {
+        return name
+            .ToUpperInvariant()
+            .Replace(".", "")
+            .Replace(",", "")
+            .Replace("INC", "")
+            .Replace("LLC", "")
+            .Replace("CORP", "")
+            .Replace("CO", "")
+            .Replace("(NC)", "")
+            .Replace("(SC)", "")
+            .Replace("(GA)", "")
+            .Replace("(FL)", "")
+            .Replace("  ", " ")
+            .Trim();
+    }
+    
+    private (CustomerShipToDto? shipTo, double score, bool isDefault) FindBestShipToMatch(
+        AddressInfo requestAddress,
+        List<CustomerShipToDto> shipTos)
+    {
+        CustomerShipToDto? bestMatch = null;
+        double bestScore = 0;
+        bool isDefault = false;
+        
+        foreach (var shipTo in shipTos)
+        {
+            var score = ScoreAddressMatch(requestAddress, 
+                shipTo.Address1, shipTo.City, shipTo.State, shipTo.ZipCode);
+            
+            // Also check name if provided
+            if (!string.IsNullOrEmpty(requestAddress.Name) && !string.IsNullOrEmpty(shipTo.Name))
+            {
+                var nameScore = ScoreNameMatch(requestAddress.Name, shipTo.Name);
+                score = (score + nameScore) / 2;
+            }
+            
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestMatch = shipTo;
+                isDefault = shipTo.IsDefault;
+            }
+        }
+        
+        return (bestMatch, bestScore, isDefault);
+    }
+    
+    private double ScoreAddressMatch(AddressInfo request, 
+        string? address1, string? city, string? state, string? zipCode)
+    {
+        return ScoreAddressMatch(request.Address1, request.City, request.State, request.ZipCode,
+            address1, city, state, zipCode);
+    }
+    
+    private double ScoreAddressMatch(
+        string? reqAddr, string? reqCity, string? reqState, string? reqZip,
+        string? addr, string? city, string? state, string? zip)
+    {
+        int matched = 0;
+        int total = 0;
+        
+        // State match (most important for disambiguation)
+        if (!string.IsNullOrEmpty(reqState))
+        {
+            total += 2;  // Weight state higher
+            if (string.Equals(reqState, state, StringComparison.OrdinalIgnoreCase))
+                matched += 2;
+        }
+        
+        // City match
+        if (!string.IsNullOrEmpty(reqCity))
+        {
+            total++;
+            if (string.Equals(reqCity, city, StringComparison.OrdinalIgnoreCase))
+                matched++;
+        }
+        
+        // Zip match (first 5 digits)
+        if (!string.IsNullOrEmpty(reqZip))
+        {
+            total++;
+            var reqZip5 = reqZip.Split('-')[0];
+            var zip5 = zip?.Split('-')[0] ?? "";
+            if (reqZip5 == zip5)
+                matched++;
+        }
+        
+        // Address match (fuzzy)
+        if (!string.IsNullOrEmpty(reqAddr))
+        {
+            total++;
+            if (FuzzyMatch(reqAddr, addr))
+                matched++;
+        }
+        
+        return total > 0 ? (double)matched / total : 0;
+    }
+    
+    private double ScorePhoneMatch(string? requestPhone, string? customerPhone)
+    {
+        if (string.IsNullOrEmpty(requestPhone) || string.IsNullOrEmpty(customerPhone))
+            return 0;
+        
+        var normRequest = NormalizePhone(requestPhone);
+        var normCustomer = NormalizePhone(customerPhone);
+        
+        if (string.IsNullOrEmpty(normRequest) || string.IsNullOrEmpty(normCustomer))
+            return 0;
+        
+        if (normRequest == normCustomer) return 1.0;
+        if (normRequest.Contains(normCustomer) || normCustomer.Contains(normRequest))
+            return 0.8;
+        
+        return 0;
+    }
+    
+    private string ExtractCompanyName(string fullName)
+    {
+        // Remove common location suffixes for searching
+        return fullName
+            .Replace("(NC)", "")
+            .Replace("(SC)", "")
+            .Replace("(GA)", "")
+            .Replace("(FL)", "")
+            .Trim();
+    }
+
     private string NormalizeAddress(string address)
     {
         return address

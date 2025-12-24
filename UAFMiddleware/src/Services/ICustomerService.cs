@@ -33,5 +33,12 @@ public interface ICustomerService
         string customerNumber, 
         ValidateShipToRequest request, 
         CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Resolve/identify the correct customer from PO data using intelligent matching
+    /// </summary>
+    Task<CustomerResolutionResponse> ResolveCustomerAsync(
+        CustomerResolutionRequest request,
+        CancellationToken cancellationToken = default);
 }
 

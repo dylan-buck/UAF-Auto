@@ -185,6 +185,62 @@ public class CustomerController : ControllerBase
     }
 
     /// <summary>
+    /// Resolve the correct customer from PO data using intelligent matching.
+    /// Returns the best match with confidence score and recommendation.
+    /// </summary>
+    [HttpPost("resolve")]
+    public async Task<ActionResult<CustomerResolutionResponse>> ResolveCustomer(
+        [FromBody] CustomerResolutionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation(
+            "Customer resolution request: Name={Name}, ShipToCity={City}, ShipToState={State}",
+            request.CustomerName,
+            request.ShipToAddress?.City,
+            request.ShipToAddress?.State);
+
+        if (string.IsNullOrEmpty(request.CustomerName))
+        {
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Customer name is required",
+                ErrorCode = "MISSING_CUSTOMER_NAME"
+            });
+        }
+
+        try
+        {
+            var result = await _customerService.ResolveCustomerAsync(request, cancellationToken);
+            
+            _logger.LogInformation(
+                "Customer resolution: {Recommendation}, Confidence={Confidence:P0}, Match={CustomerNumber}",
+                result.Recommendation, 
+                result.Confidence,
+                result.BestMatch?.CustomerNumber ?? "none");
+
+            return Ok(result);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogError("Timeout resolving customer");
+            return StatusCode(503, new ErrorResponse
+            {
+                Error = "Service is busy, please try again",
+                ErrorCode = "SERVICE_BUSY"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving customer");
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "An unexpected error occurred",
+                ErrorCode = "INTERNAL_ERROR"
+            });
+        }
+    }
+
+    /// <summary>
     /// Test endpoint - verifies the Customer API is working
     /// </summary>
     [HttpGet("test")]
@@ -198,7 +254,8 @@ public class CustomerController : ControllerBase
             {
                 search = "GET /api/v1/customers/search?name=&city=&state=&phone=",
                 getCustomer = "GET /api/v1/customers/{customerNumber}",
-                validateShipTo = "POST /api/v1/customers/{customerNumber}/validate-shipto"
+                validateShipTo = "POST /api/v1/customers/{customerNumber}/validate-shipto",
+                resolve = "POST /api/v1/customers/resolve"
             }
         });
     }
