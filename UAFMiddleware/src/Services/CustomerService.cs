@@ -405,8 +405,7 @@ public class CustomerService : ICustomerService
             
             bool hasMore = true;
             int scanned = 0;
-            int maxScan = 500; // Reduced from 2000 - most customers don't have many ship-tos
-            int consecutiveNonMatches = 0;
+            int maxScan = 1000; // Scan limit - balance between speed and completeness
             
             while (hasMore && scanned < maxScan)
             {
@@ -419,8 +418,6 @@ public class CustomerService : ICustomerService
                 
                 if (recordDiv == arDivisionNo && recordCust == customerNo)
                 {
-                    consecutiveNonMatches = 0; // Reset counter
-                    
                     string shipToCode = GetStringValue(shipToSvc, "ShipToCode$");
                     
                     var shipTo = new CustomerShipToDto
@@ -441,19 +438,8 @@ public class CustomerService : ICustomerService
                     shipTos.Add(shipTo);
                     
                     // If we found enough, stop looking
-                    if (shipTos.Count >= 20)
+                    if (shipTos.Count >= 30)
                     {
-                        _logger.LogDebug("Found 20 ship-to addresses, stopping scan");
-                        break;
-                    }
-                }
-                else
-                {
-                    consecutiveNonMatches++;
-                    // If we've found some addresses and then hit 50 non-matches, likely done with this customer
-                    if (shipTos.Count > 0 && consecutiveNonMatches >= 50)
-                    {
-                        _logger.LogDebug("Found {Count} ship-tos, stopping after 50 consecutive non-matches", shipTos.Count);
                         break;
                     }
                 }
