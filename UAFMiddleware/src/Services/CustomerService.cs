@@ -266,6 +266,22 @@ public class CustomerService : ICustomerService
             // Get ship-to addresses for this customer
             List<CustomerShipToDto> shipTos = await GetShipToAddressesAsync(
                 session, arDivisionNo, customerNo, cancellationToken);
+            
+            // Mark the default ship-to based on the customer's DefaultShipToCode
+            if (!string.IsNullOrEmpty(customer.DefaultShipToCode))
+            {
+                foreach (var shipTo in shipTos)
+                {
+                    if (shipTo.ShipToCode == customer.DefaultShipToCode)
+                    {
+                        shipTo.IsDefault = true;
+                        _logger.LogInformation("Marked ship-to {Code} as default for customer {Customer}",
+                            shipTo.ShipToCode, customer.CustomerNumber);
+                        break;
+                    }
+                }
+            }
+            
             customer.ShipToAddresses = shipTos;
             
             // Find default ship-to
@@ -473,6 +489,17 @@ public class CustomerService : ICustomerService
         string divisionNo = GetStringValue(customerSvc, "ARDivisionNo$");
         string customerNo = GetStringValue(customerSvc, "CustomerNo$");
         
+        // Get default ship-to code from customer record (this is where Sage stores the "Primary" ship-to)
+        string defaultShipToCode = GetStringValue(customerSvc, "ShipToCode$");
+        if (string.IsNullOrEmpty(defaultShipToCode))
+        {
+            // Try alternate field name
+            defaultShipToCode = GetStringValue(customerSvc, "DefaultShipToCode$");
+        }
+        
+        _logger.LogInformation("Customer {Div}-{Cust} default ship-to code: [{Code}]", 
+            divisionNo, customerNo, defaultShipToCode);
+        
         return new CustomerDto
         {
             CustomerNumber = $"{divisionNo}-{customerNo}",
@@ -489,7 +516,8 @@ public class CustomerService : ICustomerService
             Phone = GetStringValue(customerSvc, "TelephoneNo$"),
             PriceLevel = GetStringValue(customerSvc, "PriceLevel$"),
             TaxSchedule = GetStringValue(customerSvc, "TaxSchedule$"),
-            TermsCode = GetStringValue(customerSvc, "TermsCode$")
+            TermsCode = GetStringValue(customerSvc, "TermsCode$"),
+            DefaultShipToCode = defaultShipToCode
         };
     }
 

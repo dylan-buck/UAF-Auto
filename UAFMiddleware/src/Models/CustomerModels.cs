@@ -25,6 +25,11 @@ public class CustomerDto
     public string? TaxSchedule { get; set; }
     public string? TermsCode { get; set; }
     
+    /// <summary>
+    /// The default/primary ship-to code from the customer record
+    /// </summary>
+    public string? DefaultShipToCode { get; set; }
+    
     // Default Ship-To (if available)
     public CustomerShipToDto? DefaultShipTo { get; set; }
     
