@@ -222,18 +222,44 @@ public class CustomerService : ICustomerService
                 throw new InvalidOperationException("Failed to create AR_Customer_svc object");
             }
 
-            // Set key values to find specific customer
-            customerSvc.nSetKeyValue("ARDivisionNo$", arDivisionNo);
-            customerSvc.nSetKeyValue("CustomerNo$", customerNo);
-            
-            object findResult = customerSvc.nSetKey();
-            int found = findResult != null ? Convert.ToInt32(findResult) : 0;
-            
-            if (found != 1)
+            // Find the specific customer - _svc objects use nFind or iterate
+            // First move to first record
+            object firstResult = customerSvc.nMoveFirst();
+            if (firstResult == null || Convert.ToInt32(firstResult) == 0)
             {
-                _logger.LogWarning("Customer not found: {Division}-{CustomerNo}", arDivisionNo, customerNo);
+                _logger.LogWarning("No customers in database or error");
                 return null;
             }
+            
+            // Iterate to find the specific customer
+            bool found = false;
+            bool hasMore = true;
+            int scanned = 0;
+            
+            while (hasMore && scanned < 1000)
+            {
+                scanned++;
+                string recDiv = GetStringValue(customerSvc, "ARDivisionNo$");
+                string recCust = GetStringValue(customerSvc, "CustomerNo$");
+                
+                if (recDiv == arDivisionNo && recCust == customerNo)
+                {
+                    found = true;
+                    break;
+                }
+                
+                object nextResult = customerSvc.nMoveNext();
+                hasMore = nextResult != null && Convert.ToInt32(nextResult) == 1;
+            }
+            
+            if (!found)
+            {
+                _logger.LogWarning("Customer not found after scanning {Scanned} records: {Division}-{CustomerNo}", 
+                    scanned, arDivisionNo, customerNo);
+                return null;
+            }
+            
+            _logger.LogDebug("Found customer after scanning {Scanned} records", scanned);
 
             CustomerDto customer = ExtractCustomerFromCurrentRecord(customerSvc);
             
