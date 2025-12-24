@@ -2,15 +2,55 @@
 
 ## Overview
 
-This document outlines the API endpoints needed to process incoming Purchase Orders (like the United Refrigeration example) and create Sales Orders in Sage 100.
+This document outlines the API endpoints needed to process incoming Purchase Orders and create Sales Orders in Sage 100.
+
+## Data Extracted from Purchase Order
+
+| Field | Purpose |
+|-------|---------|
+| **Customer Name** | Look up customer in Sage |
+| **Customer Address** | Secondary lookup verification |
+| **Customer Phone** | Tertiary lookup verification |
+| **Ship-To Address** | MUST match customer's default ship-to |
+| **Items Requested** | Item codes for line items |
+| **Quantity per Item** | QuantityOrdered for each line |
+| **Price per Item** | Logged/verified (Sage sets actual pricing) |
+
+## Validation Rules
+
+### ❌ DO NOT AUTOMATE - Send for Manual Review:
+
+1. **Ship-To Mismatch**: PO ship-to address ≠ Customer's default ship-to in Sage
+2. **Special Instructions**: PO contains memo/notes indicating human verification needed
+
+### ✅ AUTOMATE - Create Sales Order:
+
+If ship-to matches default AND no special instructions:
+- Use ship-to's **default warehouse code**
+- Use ship-to's **default ship via** (freight method)
+- Sage applies customer's **pricing level**
+- Create sales order automatically
 
 ## Ingestion Flow
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
 │  PDF/Email PO   │────▶│  n8n Parser  │────▶│  UAF Middleware │────▶│   Sage 100   │
-│ (United Refrig) │     │  (Extract)   │     │  (Validate/API) │     │ (Sales Order)│
-└─────────────────┘     └──────────────┘     └─────────────────┘     └──────────────┘
+│                 │     │              │     │                 │     │              │
+│ Extract:        │     │ Send JSON:   │     │ 1. Lookup cust  │     │ Creates:     │
+│ • Customer info │     │ • Name       │     │ 2. Get default  │     │ • SO Header  │
+│ • Ship-to addr  │     │ • Ship-to    │     │    ship-to      │     │ • SO Lines   │
+│ • Items/Qty     │     │ • Items      │     │ 3. Compare addr │     │ • Uses whse  │
+│ • Prices        │     │ • Quantities │     │ 4. If match ──▶ │────▶│ • Uses ship  │
+│ • Notes/Memos   │     │ • Prices     │     │ 5. If no match  │     │   via method │
+└─────────────────┘     │ • Notes      │     │    ──▶ REJECT   │     └──────────────┘
+                        └──────────────┘     └─────────────────┘
+                                                     │
+                                                     ▼ (on rejection)
+                                             ┌─────────────────┐
+                                             │  Webhook/Alert  │
+                                             │  Manual Review  │
+                                             └─────────────────┘
 ```
 
 ## Sample Incoming Data (from n8n)
@@ -18,7 +58,14 @@ This document outlines the API endpoints needed to process incoming Purchase Ord
 ```json
 {
   "poNumber": "6814255-00",
-  "customerName": "SALI UNITED REFRIGERATION INC",
+  "customer": {
+    "name": "United Refrigeration, Inc.",
+    "address1": "11401 Roosevelt Blvd.",
+    "city": "PHILADELPHIA",
+    "state": "PA",
+    "zipCode": "19154",
+    "phone": "704-637-0555"
+  },
   "shipTo": {
     "name": "SALI UNITED REFRIGERATION INC",
     "address1": "1912 S. MAIN ST.",
@@ -26,23 +73,27 @@ This document outlines the API endpoints needed to process incoming Purchase Ord
     "state": "NC",
     "zipCode": "28144-6714"
   },
+  "notes": "",
   "lines": [
-    { "itemCode": "14202", "quantity": 48 },
-    { "itemCode": "15202", "quantity": 48 },
-    { "itemCode": "16202", "quantity": 240 },
-    { "itemCode": "16252", "quantity": 180 },
-    { "itemCode": "16242", "quantity": 72 },
-    { "itemCode": "18242", "quantity": 180 },
-    { "itemCode": "20202", "quantity": 300 },
-    { "itemCode": "20252", "quantity": 120 },
-    { "itemCode": "20302", "quantity": 24 },
-    { "itemCode": "16204", "quantity": 24 }
+    { "itemCode": "14202", "quantity": 48, "unitPrice": 3.15 },
+    { "itemCode": "15202", "quantity": 48, "unitPrice": 3.23 },
+    { "itemCode": "16202", "quantity": 240, "unitPrice": 2.98 },
+    { "itemCode": "16252", "quantity": 180, "unitPrice": 3.33 },
+    { "itemCode": "16242", "quantity": 72, "unitPrice": 3.74 },
+    { "itemCode": "18242", "quantity": 180, "unitPrice": 3.90 },
+    { "itemCode": "20202", "quantity": 300, "unitPrice": 3.40 },
+    { "itemCode": "20252", "quantity": 120, "unitPrice": 3.85 },
+    { "itemCode": "20302", "quantity": 24, "unitPrice": 4.35 },
+    { "itemCode": "16204", "quantity": 24, "unitPrice": 5.37 }
   ]
 }
 ```
 
-**Note:** We do NOT use pricing from the PO - Sage determines pricing based on customer price level. 
-We do NOT use their warehouse code - Sage's ship-to address determines our warehouse and freight method.
+**Notes:**
+- `customer` info used for lookup (name, address, phone)
+- `shipTo` must match customer's **default** ship-to in Sage
+- `unitPrice` is logged but Sage determines actual pricing from customer price level
+- `notes` field checked for special instructions requiring manual review
 
 ---
 
@@ -248,38 +299,131 @@ GET /api/v1/items/14202
 
 ---
 
-### 5. Create Sales Order
+### 5. Process Purchase Order (Full Workflow)
 
-**Endpoint:** `POST /api/v1/sales-orders`
+**Endpoint:** `POST /api/v1/purchase-orders/process`
 
-**Purpose:** Create sales order - Sage determines pricing, warehouse, and freight from ship-to
+**Purpose:** Complete PO processing with validation - creates sales order only if all checks pass
 
-**Request Body (Option A - Customer Number Known):**
-```json
-{
-  "customerNumber": "01-D3600",
-  "poNumber": "6814255-00",
-  "shipToCode": "SALI",
-  "lines": [
-    { "itemCode": "14202", "quantity": 48 },
-    { "itemCode": "15202", "quantity": 48 },
-    { "itemCode": "16202", "quantity": 240 }
-  ]
-}
-```
-
-**Request Body (Option B - Lookup by Name/Address):**
+**Request Body:**
 ```json
 {
   "poNumber": "6814255-00",
-  "customerName": "SALI UNITED REFRIGERATION INC",
-  "shipToAddress": {
+  "customer": {
+    "name": "United Refrigeration, Inc.",
+    "address1": "11401 Roosevelt Blvd.",
+    "city": "PHILADELPHIA",
+    "state": "PA",
+    "zipCode": "19154",
+    "phone": "704-637-0555"
+  },
+  "shipTo": {
     "name": "SALI UNITED REFRIGERATION INC",
     "address1": "1912 S. MAIN ST.",
     "city": "SALISBURY",
     "state": "NC",
     "zipCode": "28144-6714"
   },
+  "notes": "",
+  "lines": [
+    { "itemCode": "14202", "quantity": 48, "unitPrice": 3.15 },
+    { "itemCode": "15202", "quantity": 48, "unitPrice": 3.23 },
+    { "itemCode": "16202", "quantity": 240, "unitPrice": 2.98 }
+  ]
+}
+```
+
+**Response (Success - Order Created):**
+```json
+{
+  "success": true,
+  "action": "ORDER_CREATED",
+  "salesOrderNumber": "0334499",
+  "message": "Sales order created successfully",
+  "details": {
+    "customerNumber": "01-D3600",
+    "customerName": "UNITED REFRIGERATION INC (NC)",
+    "shipToCode": "SALI",
+    "shipToMatched": true,
+    "warehouseCode": "000",
+    "shipVia": "UPS GROUND",
+    "lineCount": 3,
+    "poUnitPrices": [3.15, 3.23, 2.98],
+    "sagePrices": [3.15, 3.23, 2.98]
+  }
+}
+```
+
+**Response (Rejected - Ship-To Mismatch):**
+```json
+{
+  "success": false,
+  "action": "MANUAL_REVIEW_REQUIRED",
+  "errorCode": "SHIPTO_MISMATCH",
+  "message": "PO ship-to address does not match customer's default ship-to",
+  "webhookSent": true,
+  "details": {
+    "customerNumber": "01-D3600",
+    "customerName": "UNITED REFRIGERATION INC (NC)",
+    "defaultShipTo": {
+      "shipToCode": "MAIN",
+      "address1": "11401 Roosevelt Blvd.",
+      "city": "PHILADELPHIA",
+      "state": "PA"
+    },
+    "poShipTo": {
+      "address1": "1912 S. MAIN ST.",
+      "city": "SALISBURY",
+      "state": "NC"
+    }
+  }
+}
+```
+
+**Response (Rejected - Special Instructions):**
+```json
+{
+  "success": false,
+  "action": "MANUAL_REVIEW_REQUIRED",
+  "errorCode": "SPECIAL_INSTRUCTIONS",
+  "message": "PO contains notes requiring human verification",
+  "webhookSent": true,
+  "details": {
+    "notes": "PLEASE CALL BEFORE DELIVERY - LOADING DOCK ONLY"
+  }
+}
+```
+
+**Response (Rejected - Customer Not Found):**
+```json
+{
+  "success": false,
+  "action": "MANUAL_REVIEW_REQUIRED",
+  "errorCode": "CUSTOMER_NOT_FOUND",
+  "message": "Could not find matching customer in Sage",
+  "webhookSent": true,
+  "details": {
+    "searchedName": "United Refrigeration, Inc.",
+    "searchedAddress": "11401 Roosevelt Blvd., PHILADELPHIA, PA",
+    "searchedPhone": "704-637-0555"
+  }
+}
+```
+
+---
+
+### 6. Create Sales Order (Direct - Bypass Validation)
+
+**Endpoint:** `POST /api/v1/sales-orders`
+
+**Purpose:** Direct order creation when customer number is already known (skip lookup/validation)
+
+**Request Body:**
+```json
+{
+  "customerNumber": "01-D3600",
+  "poNumber": "6814255-00",
+  "shipToCode": "SALI",
   "lines": [
     { "itemCode": "14202", "quantity": 48 },
     { "itemCode": "15202", "quantity": 48 },
@@ -288,42 +432,18 @@ GET /api/v1/items/14202
 }
 ```
 
-**Response (Success):**
+**Response:**
 ```json
 {
   "success": true,
   "salesOrderNumber": "0334499",
-  "message": "Sales order created successfully",
-  "customerNumber": "01-D3600",
-  "shipToCode": "SALI",
-  "warehouseCode": "000",
-  "freightMethod": "UPS GROUND"
-}
-```
-
-**Response (Ship-To Mismatch - Needs Review):**
-```json
-{
-  "success": false,
-  "errorCode": "SHIPTO_MISMATCH",
-  "errorMessage": "Ship-to address does not match any registered address for this customer",
-  "requiresManualReview": true,
-  "webhookSent": true,
-  "customerNumber": "01-D3600",
-  "incomingAddress": {
-    "address1": "1912 S. MAIN ST.",
-    "city": "SALISBURY",
-    "state": "NC"
-  },
-  "registeredAddresses": [
-    { "shipToCode": "SALI", "address1": "1912 SOUTH MAIN STREET", "city": "SALISBURY" }
-  ]
+  "message": "Sales order created successfully"
 }
 ```
 
 **Note:** Sage automatically sets:
 - **Warehouse** from ship-to address default
-- **Freight method** from ship-to address default  
+- **Ship Via** from ship-to address default  
 - **Pricing** from customer price level
 - **Tax schedule** from customer/ship-to settings
 
@@ -374,17 +494,18 @@ When `validateShipTo: true` and address doesn't match, send webhook:
 
 ## Implementation Priority
 
-1. **Phase 1 (MVP - Current):** 
-   - ✅ Sales order creation with customer number
-   - Customer search by name
-   - Customer details with ship-to addresses
+### Phase 1 - Core APIs (Current)
+- ✅ `POST /api/v1/sales-orders` - Direct order creation with customer number
+- 🔲 `GET /api/v1/customers/search` - Find customer by name/address/phone
+- 🔲 `GET /api/v1/customers/{id}` - Get customer details with default ship-to
 
-2. **Phase 2 (Enhanced Lookup):**
-   - Sales order creation with name/address lookup (auto-resolve customer)
-   - Ship-to address matching and validation
-   - Item code validation
+### Phase 2 - Validation Logic
+- 🔲 `POST /api/v1/customers/{id}/validate-shipto` - Compare addresses
+- 🔲 Ship-to matching algorithm (fuzzy match for address variations)
+- 🔲 Special instructions detection (keyword scanning in notes)
 
-3. **Phase 3 (Automation):**
-   - Webhook notifications for manual review cases
-   - n8n integration endpoint for direct PO ingestion
+### Phase 3 - Full PO Processing
+- 🔲 `POST /api/v1/purchase-orders/process` - Complete workflow endpoint
+- 🔲 Webhook integration for manual review notifications
+- 🔲 n8n integration testing
 
