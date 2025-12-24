@@ -658,6 +658,8 @@ public class CustomerService : ICustomerService
             response.Confidence = response.BestMatch.Score;
             
             // Step 4: Determine recommendation based on confidence
+            var issues = new List<string>();
+            
             if (response.Confidence >= request.MinConfidence)
             {
                 response.Resolved = true;
@@ -668,8 +670,9 @@ public class CustomerService : ICustomerService
                 // Check if this is the default ship-to
                 if (!response.BestMatch.IsDefaultShipTo)
                 {
+                    response.Resolved = false;
                     response.Recommendation = "MANUAL_REVIEW";
-                    response.Message += " - WARNING: Matched ship-to is NOT the default";
+                    issues.Add("PO ship-to does NOT match customer's default ship-to address");
                 }
             }
             else if (response.Confidence >= 0.5)
@@ -687,8 +690,40 @@ public class CustomerService : ICustomerService
                     $"(Score: {response.Confidence:P0}). Cannot auto-process.";
             }
             
+            // Step 5: Validate ship-to has required fields for order processing
+            if (response.BestMatch.IsDefaultShipTo || response.Confidence >= 0.5)
+            {
+                // Check for missing warehouse code
+                if (string.IsNullOrWhiteSpace(response.BestMatch.WarehouseCode))
+                {
+                    response.Resolved = false;
+                    response.Recommendation = "MANUAL_REVIEW";
+                    issues.Add("Ship-to address has no warehouse code configured in Sage");
+                }
+                
+                // Check for missing ship via
+                if (string.IsNullOrWhiteSpace(response.BestMatch.ShipVia))
+                {
+                    response.Resolved = false;
+                    response.Recommendation = "MANUAL_REVIEW";
+                    issues.Add("Ship-to address has no ship via method configured in Sage");
+                }
+            }
+            
+            // Add issues to message if any
+            if (issues.Count > 0)
+            {
+                response.Message += " - ISSUES: " + string.Join("; ", issues);
+            }
+            
             // Add scoring details
             response.ScoringDetails = response.BestMatch.ScoreBreakdown.Details;
+            
+            // Add issue details to scoring
+            foreach (var issue in issues)
+            {
+                response.ScoringDetails.Add($"⚠️ {issue}");
+            }
             
             _logger.LogInformation(
                 "Customer resolution: {Recommendation} - {CustomerNumber} ({Score:P0})",
