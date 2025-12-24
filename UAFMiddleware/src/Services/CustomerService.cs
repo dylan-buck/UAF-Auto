@@ -110,7 +110,8 @@ public class CustomerService : ICustomerService
                 
                 if (!string.IsNullOrEmpty(request.Name))
                 {
-                    matches = matches && (custName?.IndexOf(request.Name, StringComparison.OrdinalIgnoreCase) >= 0);
+                    // Use fuzzy name matching - normalize both and check for keyword overlap
+                    matches = matches && FuzzyNameMatch(request.Name, custName);
                 }
                 
                 if (!string.IsNullOrEmpty(request.City))
@@ -782,13 +783,49 @@ public class CustomerService : ICustomerService
             .Replace("INC", "")
             .Replace("LLC", "")
             .Replace("CORP", "")
+            .Replace("CORPORATION", "")
+            .Replace("COMPANY", "")
             .Replace("CO", "")
             .Replace("(NC)", "")
             .Replace("(SC)", "")
             .Replace("(GA)", "")
             .Replace("(FL)", "")
+            .Replace("(VA)", "")
+            .Replace("(TN)", "")
             .Replace("  ", " ")
             .Trim();
+    }
+    
+    /// <summary>
+    /// Fuzzy match customer names - handles variations like "United Refrigeration, Inc." vs "UNITED REFRIGERATION INC (NC)"
+    /// </summary>
+    private bool FuzzyNameMatch(string searchName, string? recordName)
+    {
+        if (string.IsNullOrEmpty(searchName) || string.IsNullOrEmpty(recordName))
+            return false;
+        
+        // Normalize both names
+        var normSearch = NormalizeName(searchName);
+        var normRecord = NormalizeName(recordName);
+        
+        // Direct match after normalization
+        if (normRecord.Contains(normSearch) || normSearch.Contains(normRecord))
+            return true;
+        
+        // Split into words and check for significant overlap
+        var searchWords = normSearch.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length > 2)  // Ignore short words
+            .ToList();
+        
+        if (searchWords.Count == 0)
+            return false;
+        
+        // Count how many search words appear in the record
+        int matchedWords = searchWords.Count(sw => normRecord.Contains(sw));
+        
+        // Require at least 50% of significant words to match
+        double matchRatio = (double)matchedWords / searchWords.Count;
+        return matchRatio >= 0.5;
     }
     
     private (CustomerShipToDto? shipTo, double score, bool isDefault) FindBestShipToMatch(
