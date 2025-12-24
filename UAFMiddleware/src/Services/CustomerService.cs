@@ -416,6 +416,13 @@ public class CustomerService : ICustomerService
                 string recordDiv = GetStringValue(shipToSvc, "ARDivisionNo$");
                 string recordCust = GetStringValue(shipToSvc, "CustomerNo$");
                 
+                // Log first few records to debug matching
+                if (scanned <= 5)
+                {
+                    _logger.LogInformation("Ship-to record {N}: Div=[{Div}] Cust=[{Cust}] (looking for [{LookDiv}]-[{LookCust}])",
+                        scanned, recordDiv, recordCust, arDivisionNo, customerNo);
+                }
+                
                 if (recordDiv == arDivisionNo && recordCust == customerNo)
                 {
                     string shipToCode = GetStringValue(shipToSvc, "ShipToCode$");
