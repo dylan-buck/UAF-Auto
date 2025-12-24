@@ -51,6 +51,7 @@ try
     // Add services
     builder.Services.AddSingleton<IProvideXSessionManager, ProvideXSessionManager>();
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+    builder.Services.AddScoped<ICustomerService, CustomerService>();
     builder.Services.AddHostedService<HealthMonitorService>();
 
     // Add controllers
