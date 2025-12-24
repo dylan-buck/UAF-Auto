@@ -375,55 +375,65 @@ public class CustomerService : ICustomerService
                 return shipTos;
             }
 
-            // Set filter for this customer
-            shipToSvc.nSetKeyValue("ARDivisionNo$", arDivisionNo);
-            shipToSvc.nSetKeyValue("CustomerNo$", customerNo);
+            _logger.LogDebug("Scanning ship-to addresses for {Division}-{CustomerNo}", arDivisionNo, customerNo);
             
-            // Move to first record for this customer
+            // Move to first record (nSetKeyValue doesn't filter, just sets values)
             object firstResult = shipToSvc.nMoveFirst();
             int moveResult = firstResult != null ? Convert.ToInt32(firstResult) : 0;
             
-            bool hasMore = moveResult == 1;
-            int count = 0;
-            
-            while (hasMore && count < 100) // Limit to 100 ship-to addresses
+            if (moveResult != 1)
             {
+                _logger.LogDebug("No ship-to addresses in database");
+                return shipTos;
+            }
+            
+            bool hasMore = true;
+            int scanned = 0;
+            int maxScan = 2000; // Limit scan to prevent long operations
+            
+            while (hasMore && scanned < maxScan)
+            {
+                scanned++;
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 // Check if this record belongs to our customer
                 string recordDiv = GetStringValue(shipToSvc, "ARDivisionNo$");
                 string recordCust = GetStringValue(shipToSvc, "CustomerNo$");
                 
-                if (recordDiv != arDivisionNo || recordCust != customerNo)
+                if (recordDiv == arDivisionNo && recordCust == customerNo)
                 {
-                    break; // Moved past our customer's records
+                    var shipTo = new CustomerShipToDto
+                    {
+                        ShipToCode = GetStringValue(shipToSvc, "ShipToCode$"),
+                        Name = GetStringValue(shipToSvc, "ShipToName$"),
+                        Address1 = GetStringValue(shipToSvc, "ShipToAddress1$"),
+                        Address2 = GetStringValue(shipToSvc, "ShipToAddress2$"),
+                        City = GetStringValue(shipToSvc, "ShipToCity$"),
+                        State = GetStringValue(shipToSvc, "ShipToState$"),
+                        ZipCode = GetStringValue(shipToSvc, "ShipToZipCode$"),
+                        Country = GetStringValue(shipToSvc, "ShipToCountryCode$"),
+                        WarehouseCode = GetStringValue(shipToSvc, "WarehouseCode$"),
+                        ShipVia = GetStringValue(shipToSvc, "ShipVia$"),
+                        IsDefault = GetStringValue(shipToSvc, "DefaultShipTo$") == "Y"
+                    };
+                    
+                    shipTos.Add(shipTo);
+                    
+                    // If we found enough, stop looking
+                    if (shipTos.Count >= 50)
+                    {
+                        _logger.LogDebug("Found 50 ship-to addresses, stopping scan");
+                        break;
+                    }
                 }
-
-                var shipTo = new CustomerShipToDto
-                {
-                    ShipToCode = GetStringValue(shipToSvc, "ShipToCode$"),
-                    Name = GetStringValue(shipToSvc, "ShipToName$"),
-                    Address1 = GetStringValue(shipToSvc, "ShipToAddress1$"),
-                    Address2 = GetStringValue(shipToSvc, "ShipToAddress2$"),
-                    City = GetStringValue(shipToSvc, "ShipToCity$"),
-                    State = GetStringValue(shipToSvc, "ShipToState$"),
-                    ZipCode = GetStringValue(shipToSvc, "ShipToZipCode$"),
-                    Country = GetStringValue(shipToSvc, "ShipToCountryCode$"),
-                    WarehouseCode = GetStringValue(shipToSvc, "WarehouseCode$"),
-                    ShipVia = GetStringValue(shipToSvc, "ShipVia$"),
-                    IsDefault = GetStringValue(shipToSvc, "DefaultShipTo$") == "Y"
-                };
-                
-                shipTos.Add(shipTo);
-                count++;
 
                 object nextResult = shipToSvc.nMoveNext();
                 int nextMoveResult = nextResult != null ? Convert.ToInt32(nextResult) : 0;
                 hasMore = nextMoveResult == 1;
             }
 
-            _logger.LogDebug("Found {Count} ship-to addresses for {Division}-{CustomerNo}", 
-                shipTos.Count, arDivisionNo, customerNo);
+            _logger.LogDebug("Found {Count} ship-to addresses for {Division}-{CustomerNo} after scanning {Scanned} records", 
+                shipTos.Count, arDivisionNo, customerNo, scanned);
         }
         catch (Exception ex)
         {
