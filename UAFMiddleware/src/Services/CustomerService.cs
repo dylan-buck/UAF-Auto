@@ -411,8 +411,8 @@ public class CustomerService : ICustomerService
                     string primary = GetStringValue(shipToSvc, "Primary$");
                     string primaryShipToAddress = GetStringValue(shipToSvc, "PrimaryShipToAddress$");
                     
-                    // Log all values to help debug
-                    _logger.LogDebug("Ship-to {Code} flags: DefaultShipTo$=[{Default}], PrimaryShipTo$=[{Primary}], Primary$=[{P}], PrimaryShipToAddress$=[{PSA}]",
+                    // Log all values to help debug (temporarily INFO level)
+                    _logger.LogInformation("Ship-to {Code} flags: DefaultShipTo$=[{Default}], PrimaryShipTo$=[{Primary}], Primary$=[{P}], PrimaryShipToAddress$=[{PSA}]",
                         shipToCode, defaultFlag, primaryFlag, primary, primaryShipToAddress);
                     
                     // "Primary" checkbox in Sage might be stored as "Y", "1", "True", or non-empty
