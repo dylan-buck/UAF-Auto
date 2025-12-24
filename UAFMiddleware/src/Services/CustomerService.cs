@@ -405,7 +405,8 @@ public class CustomerService : ICustomerService
             
             bool hasMore = true;
             int scanned = 0;
-            int maxScan = 2000; // Limit scan to prevent long operations
+            int maxScan = 500; // Reduced from 2000 - most customers don't have many ship-tos
+            int consecutiveNonMatches = 0;
             
             while (hasMore && scanned < maxScan)
             {
@@ -418,22 +419,9 @@ public class CustomerService : ICustomerService
                 
                 if (recordDiv == arDivisionNo && recordCust == customerNo)
                 {
+                    consecutiveNonMatches = 0; // Reset counter
+                    
                     string shipToCode = GetStringValue(shipToSvc, "ShipToCode$");
-                    
-                    // Check multiple possible field names for default/primary flag
-                    // Sage 100 uses different field names depending on version
-                    string defaultFlag = GetStringValue(shipToSvc, "DefaultShipTo$");
-                    string primaryFlag = GetStringValue(shipToSvc, "PrimaryShipTo$");
-                    string primary = GetStringValue(shipToSvc, "Primary$");
-                    string primaryShipToAddress = GetStringValue(shipToSvc, "PrimaryShipToAddress$");
-                    
-                    // Log all values to help debug (temporarily INFO level)
-                    _logger.LogInformation("Ship-to {Code} flags: DefaultShipTo$=[{Default}], PrimaryShipTo$=[{Primary}], Primary$=[{P}], PrimaryShipToAddress$=[{PSA}]",
-                        shipToCode, defaultFlag, primaryFlag, primary, primaryShipToAddress);
-                    
-                    // "Primary" checkbox in Sage might be stored as "Y", "1", "True", or non-empty
-                    bool isDefault = IsYesValue(defaultFlag) || IsYesValue(primaryFlag) || 
-                                    IsYesValue(primary) || IsYesValue(primaryShipToAddress);
                     
                     var shipTo = new CustomerShipToDto
                     {
@@ -447,15 +435,25 @@ public class CustomerService : ICustomerService
                         Country = GetStringValue(shipToSvc, "ShipToCountryCode$"),
                         WarehouseCode = GetStringValue(shipToSvc, "WarehouseCode$"),
                         ShipVia = GetStringValue(shipToSvc, "ShipVia$"),
-                        IsDefault = isDefault
+                        IsDefault = false // Will be set later based on customer's DefaultShipToCode
                     };
                     
                     shipTos.Add(shipTo);
                     
                     // If we found enough, stop looking
-                    if (shipTos.Count >= 50)
+                    if (shipTos.Count >= 20)
                     {
-                        _logger.LogDebug("Found 50 ship-to addresses, stopping scan");
+                        _logger.LogDebug("Found 20 ship-to addresses, stopping scan");
+                        break;
+                    }
+                }
+                else
+                {
+                    consecutiveNonMatches++;
+                    // If we've found some addresses and then hit 50 non-matches, likely done with this customer
+                    if (shipTos.Count > 0 && consecutiveNonMatches >= 50)
+                    {
+                        _logger.LogDebug("Found {Count} ship-tos, stopping after 50 consecutive non-matches", shipTos.Count);
                         break;
                     }
                 }
@@ -465,7 +463,7 @@ public class CustomerService : ICustomerService
                 hasMore = nextMoveResult == 1;
             }
 
-            _logger.LogDebug("Found {Count} ship-to addresses for {Division}-{CustomerNo} after scanning {Scanned} records", 
+            _logger.LogInformation("Found {Count} ship-to addresses for {Division}-{CustomerNo} after scanning {Scanned} records", 
                 shipTos.Count, arDivisionNo, customerNo, scanned);
         }
         catch (Exception ex)
@@ -679,13 +677,28 @@ public class CustomerService : ICustomerService
             
             _logger.LogInformation("Found {Count} customer candidates", searchResult.Customers.Count);
             
-            // Step 2: Score each candidate
-            foreach (var customer in searchResult.Customers)
+            // Step 2: Pre-filter by name score - only fetch full details for good name matches
+            var candidatesWithNameScore = searchResult.Customers
+                .Select(c => new { Customer = c, NameScore = ScoreNameMatch(request.CustomerName, c.CustomerName) })
+                .OrderByDescending(c => c.NameScore)
+                .ToList();
+            
+            // Only process top 5 candidates with name score >= 50%
+            var topCandidates = candidatesWithNameScore
+                .Where(c => c.NameScore >= 0.5)
+                .Take(5)
+                .ToList();
+            
+            _logger.LogInformation("Processing {Count} top candidates (filtered from {Total} by name score)",
+                topCandidates.Count, searchResult.Customers.Count);
+            
+            // Step 3: Score each top candidate with full details
+            foreach (var item in topCandidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 
                 // Get full customer details with ship-to addresses
-                var fullCustomer = await GetCustomerAsync(customer.CustomerNumber, cancellationToken);
+                var fullCustomer = await GetCustomerAsync(item.Customer.CustomerNumber, cancellationToken);
                 if (fullCustomer == null) continue;
                 
                 var matchResult = ScoreCustomerMatch(request, fullCustomer);
