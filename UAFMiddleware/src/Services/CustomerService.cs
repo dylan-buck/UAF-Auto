@@ -115,7 +115,8 @@ public class CustomerService : ICustomerService
                 {
                     var normalizedPhone = NormalizePhone(request.Phone);
                     var recordPhone = NormalizePhone(phone);
-                    matches = matches && (recordPhone?.Contains(normalizedPhone) == true);
+                    matches = matches && (!string.IsNullOrEmpty(normalizedPhone) && 
+                        recordPhone?.Contains(normalizedPhone) == true);
                 }
                 
                 if (!string.IsNullOrEmpty(request.Address))
@@ -214,15 +215,16 @@ public class CustomerService : ICustomerService
                 return null;
             }
 
-            var customer = ExtractCustomerFromCurrentRecord(customerSvc);
+            CustomerDto customer = ExtractCustomerFromCurrentRecord(customerSvc);
             
             // Get ship-to addresses for this customer
-            customer.ShipToAddresses = await GetShipToAddressesAsync(
+            List<CustomerShipToDto> shipTos = await GetShipToAddressesAsync(
                 session, arDivisionNo, customerNo, cancellationToken);
+            customer.ShipToAddresses = shipTos;
             
             // Find default ship-to
-            customer.DefaultShipTo = customer.ShipToAddresses.FirstOrDefault(s => s.IsDefault)
-                ?? customer.ShipToAddresses.FirstOrDefault();
+            customer.DefaultShipTo = shipTos.FirstOrDefault(s => s.IsDefault)
+                ?? shipTos.FirstOrDefault();
 
             return customer;
         }
