@@ -402,9 +402,22 @@ public class CustomerService : ICustomerService
                 
                 if (recordDiv == arDivisionNo && recordCust == customerNo)
                 {
+                    string shipToCode = GetStringValue(shipToSvc, "ShipToCode$");
+                    
+                    // Check multiple possible field names for default/primary flag
+                    string defaultFlag = GetStringValue(shipToSvc, "DefaultShipTo$");
+                    string primaryFlag = GetStringValue(shipToSvc, "PrimaryShipTo$");
+                    
+                    // "Primary" checkbox in Sage might be stored as "Y", "1", or "True"
+                    bool isDefault = defaultFlag == "Y" || defaultFlag == "1" || defaultFlag.ToUpper() == "TRUE" ||
+                                    primaryFlag == "Y" || primaryFlag == "1" || primaryFlag.ToUpper() == "TRUE";
+                    
+                    _logger.LogDebug("Ship-to {Code}: DefaultShipTo$={Default}, PrimaryShipTo$={Primary}, isDefault={IsDefault}",
+                        shipToCode, defaultFlag, primaryFlag, isDefault);
+                    
                     var shipTo = new CustomerShipToDto
                     {
-                        ShipToCode = GetStringValue(shipToSvc, "ShipToCode$"),
+                        ShipToCode = shipToCode,
                         Name = GetStringValue(shipToSvc, "ShipToName$"),
                         Address1 = GetStringValue(shipToSvc, "ShipToAddress1$"),
                         Address2 = GetStringValue(shipToSvc, "ShipToAddress2$"),
@@ -414,7 +427,7 @@ public class CustomerService : ICustomerService
                         Country = GetStringValue(shipToSvc, "ShipToCountryCode$"),
                         WarehouseCode = GetStringValue(shipToSvc, "WarehouseCode$"),
                         ShipVia = GetStringValue(shipToSvc, "ShipVia$"),
-                        IsDefault = GetStringValue(shipToSvc, "DefaultShipTo$") == "Y"
+                        IsDefault = isDefault
                     };
                     
                     shipTos.Add(shipTo);
@@ -909,8 +922,9 @@ public class CustomerService : ICustomerService
         
         foreach (var shipTo in shipTos)
         {
+            // Pass Address2 for better matching when street address is on different lines
             var score = ScoreAddressMatch(requestAddress, 
-                shipTo.Address1, shipTo.City, shipTo.State, shipTo.ZipCode);
+                shipTo.Address1, shipTo.City, shipTo.State, shipTo.ZipCode, shipTo.Address2);
             
             // Also check name if provided
             if (!string.IsNullOrEmpty(requestAddress.Name) && !string.IsNullOrEmpty(shipTo.Name))
@@ -918,6 +932,9 @@ public class CustomerService : ICustomerService
                 var nameScore = ScoreNameMatch(requestAddress.Name, shipTo.Name);
                 score = (score + nameScore) / 2;
             }
+            
+            _logger.LogDebug("Ship-to {Code} score: {Score:P0} (Addr: {Addr1}/{Addr2}, City: {City}, State: {State})",
+                shipTo.ShipToCode, score, shipTo.Address1, shipTo.Address2, shipTo.City, shipTo.State);
             
             if (score > bestScore)
             {
@@ -931,13 +948,22 @@ public class CustomerService : ICustomerService
     }
     
     private double ScoreAddressMatch(AddressInfo request, 
-        string? address1, string? city, string? state, string? zipCode)
+        string? address1, string? city, string? state, string? zipCode, string? address2 = null)
     {
-        return ScoreAddressMatch(request.Address1, request.City, request.State, request.ZipCode,
-            address1, city, state, zipCode);
+        // Combine address lines for comparison
+        var reqAddrCombined = CombineAddressLines(request.Address1, request.Address2);
+        var sageAddrCombined = CombineAddressLines(address1, address2);
+        
+        return ScoreAddressMatchCombined(reqAddrCombined, request.City, request.State, request.ZipCode,
+            sageAddrCombined, city, state, zipCode);
     }
     
-    private double ScoreAddressMatch(
+    private string CombineAddressLines(params string?[] lines)
+    {
+        return string.Join(" ", lines.Where(l => !string.IsNullOrWhiteSpace(l) && l.ToUpper() != "ATTN:"));
+    }
+    
+    private double ScoreAddressMatchCombined(
         string? reqAddr, string? reqCity, string? reqState, string? reqZip,
         string? addr, string? city, string? state, string? zip)
     {
@@ -970,11 +996,15 @@ public class CustomerService : ICustomerService
                 matched++;
         }
         
-        // Address match (fuzzy)
+        // Address match (fuzzy) - compare combined, normalized addresses
         if (!string.IsNullOrEmpty(reqAddr))
         {
             total++;
-            if (FuzzyMatch(reqAddr, addr))
+            var normReq = NormalizeAddress(reqAddr);
+            var normAddr = NormalizeAddress(addr ?? "");
+            
+            // Check if normalized addresses match or one contains the other
+            if (normReq == normAddr || normReq.Contains(normAddr) || normAddr.Contains(normReq))
                 matched++;
         }
         
