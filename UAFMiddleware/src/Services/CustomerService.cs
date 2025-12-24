@@ -405,15 +405,19 @@ public class CustomerService : ICustomerService
                     string shipToCode = GetStringValue(shipToSvc, "ShipToCode$");
                     
                     // Check multiple possible field names for default/primary flag
+                    // Sage 100 uses different field names depending on version
                     string defaultFlag = GetStringValue(shipToSvc, "DefaultShipTo$");
                     string primaryFlag = GetStringValue(shipToSvc, "PrimaryShipTo$");
+                    string primary = GetStringValue(shipToSvc, "Primary$");
+                    string primaryShipToAddress = GetStringValue(shipToSvc, "PrimaryShipToAddress$");
                     
-                    // "Primary" checkbox in Sage might be stored as "Y", "1", or "True"
-                    bool isDefault = defaultFlag == "Y" || defaultFlag == "1" || defaultFlag.ToUpper() == "TRUE" ||
-                                    primaryFlag == "Y" || primaryFlag == "1" || primaryFlag.ToUpper() == "TRUE";
+                    // Log all values to help debug
+                    _logger.LogDebug("Ship-to {Code} flags: DefaultShipTo$=[{Default}], PrimaryShipTo$=[{Primary}], Primary$=[{P}], PrimaryShipToAddress$=[{PSA}]",
+                        shipToCode, defaultFlag, primaryFlag, primary, primaryShipToAddress);
                     
-                    _logger.LogDebug("Ship-to {Code}: DefaultShipTo$={Default}, PrimaryShipTo$={Primary}, isDefault={IsDefault}",
-                        shipToCode, defaultFlag, primaryFlag, isDefault);
+                    // "Primary" checkbox in Sage might be stored as "Y", "1", "True", or non-empty
+                    bool isDefault = IsYesValue(defaultFlag) || IsYesValue(primaryFlag) || 
+                                    IsYesValue(primary) || IsYesValue(primaryShipToAddress);
                     
                     var shipTo = new CustomerShipToDto
                     {
@@ -501,6 +505,13 @@ public class CustomerService : ICustomerService
         {
             return "";
         }
+    }
+    
+    private bool IsYesValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var v = value.Trim().ToUpperInvariant();
+        return v == "Y" || v == "1" || v == "TRUE" || v == "YES";
     }
 
     private string EscapeFilter(string value)
