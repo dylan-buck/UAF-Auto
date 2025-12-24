@@ -82,9 +82,21 @@ public class CustomerService : ICustomerService
             }
 
             // Iterate through customers and filter in code
-            while (hasMore && foundCount < request.Limit)
+            // Limit total records scanned to prevent hanging on large databases
+            const int maxRecordsToScan = 500;
+            int recordsScanned = 0;
+            
+            while (hasMore && foundCount < request.Limit && recordsScanned < maxRecordsToScan)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                recordsScanned++;
+                
+                // Log progress every 100 records
+                if (recordsScanned % 100 == 0)
+                {
+                    _logger.LogDebug("Scanned {Scanned} records, found {Found} matches so far", 
+                        recordsScanned, foundCount);
+                }
                 
                 // Get current record values
                 string custName = GetStringValue(customerSvc, "CustomerName$");
@@ -126,6 +138,7 @@ public class CustomerService : ICustomerService
 
                 if (matches)
                 {
+                    _logger.LogDebug("Found match: {CustomerName}", custName);
                     var customer = ExtractCustomerFromCurrentRecord(customerSvc);
                     customers.Add(customer);
                     foundCount++;
@@ -135,6 +148,12 @@ public class CustomerService : ICustomerService
                 object nextResult = customerSvc.nMoveNext();
                 int nextMoveResult = nextResult != null ? Convert.ToInt32(nextResult) : 0;
                 hasMore = nextMoveResult == 1;
+            }
+            
+            if (recordsScanned >= maxRecordsToScan && foundCount < request.Limit)
+            {
+                _logger.LogWarning("Stopped scanning after {MaxRecords} records. Found {Found} matches. " +
+                    "Use more specific search criteria for better results.", maxRecordsToScan, foundCount);
             }
 
             _logger.LogInformation("Found {Count} customers matching criteria", customers.Count);
