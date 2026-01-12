@@ -791,11 +791,11 @@ public class CustomerService : ICustomerService
             }
             
             response.BestMatch = response.Candidates.First();
-            response.Confidence = response.BestMatch.Score;
-            
+            response.Confidence = Math.Round(response.BestMatch.Score, 4); // Round to avoid floating point issues
+
             // Step 4: Determine recommendation based on confidence
             var issues = new List<string>();
-            
+
             if (response.Confidence >= request.MinConfidence)
             {
                 response.Resolved = true;
