@@ -379,54 +379,130 @@ public class CustomerService : ICustomerService
     {
         var shipTos = new List<CustomerShipToDto>();
         dynamic? shipToSvc = null;
-        
+
         try
         {
             // Create SO_ShipToAddress_svc to get ship-to addresses
             shipToSvc = session.ProvideXScript.NewObject("SO_ShipToAddress_svc", session.Session);
-            
+
             if (shipToSvc == null)
             {
                 _logger.LogWarning("Could not create SO_ShipToAddress_svc");
                 return shipTos;
             }
 
-            _logger.LogDebug("Scanning ship-to addresses for {Division}-{CustomerNo}", arDivisionNo, customerNo);
-            
-            // Move to first record (nSetKeyValue doesn't filter, just sets values)
+            _logger.LogInformation("Looking up ship-to addresses for {Division}-{CustomerNo}", arDivisionNo, customerNo);
+
+            // Try to position directly to this customer's ship-to records using nSetKeyValue + nFind
+            // The SO_ShipToAddress key is: ARDivisionNo + CustomerNo + ShipToCode
+            try
+            {
+                shipToSvc.nSetKeyValue("ARDivisionNo$", arDivisionNo);
+                shipToSvc.nSetKeyValue("CustomerNo$", customerNo);
+
+                // nFind positions to the first record >= key values
+                object findResult = shipToSvc.nFind();
+                int found = findResult != null ? Convert.ToInt32(findResult) : 0;
+
+                _logger.LogInformation("nFind result for {Division}-{CustomerNo}: {Result}", arDivisionNo, customerNo, found);
+
+                if (found == 1)
+                {
+                    // Successfully positioned, now read records for this customer
+                    bool hasMore = true;
+                    int count = 0;
+
+                    while (hasMore && count < 50)
+                    {
+                        count++;
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        string recordDiv = GetStringValue(shipToSvc, "ARDivisionNo$");
+                        string recordCust = GetStringValue(shipToSvc, "CustomerNo$");
+
+                        _logger.LogDebug("Ship-to record: Div=[{Div}] Cust=[{Cust}]", recordDiv, recordCust);
+
+                        // Stop if we've moved past this customer
+                        if (recordDiv != arDivisionNo || recordCust != customerNo)
+                        {
+                            _logger.LogInformation("Reached end of ship-to records for customer (found different customer {Div}-{Cust})",
+                                recordDiv, recordCust);
+                            break;
+                        }
+
+                        string shipToCode = GetStringValue(shipToSvc, "ShipToCode$");
+
+                        var shipTo = new CustomerShipToDto
+                        {
+                            ShipToCode = shipToCode,
+                            Name = GetStringValue(shipToSvc, "ShipToName$"),
+                            Address1 = GetStringValue(shipToSvc, "ShipToAddress1$"),
+                            Address2 = GetStringValue(shipToSvc, "ShipToAddress2$"),
+                            City = GetStringValue(shipToSvc, "ShipToCity$"),
+                            State = GetStringValue(shipToSvc, "ShipToState$"),
+                            ZipCode = GetStringValue(shipToSvc, "ShipToZipCode$"),
+                            Country = GetStringValue(shipToSvc, "ShipToCountryCode$"),
+                            WarehouseCode = GetStringValue(shipToSvc, "WarehouseCode$"),
+                            ShipVia = GetStringValue(shipToSvc, "ShipVia$"),
+                            IsDefault = false // Will be set later based on customer's DefaultShipToCode
+                        };
+
+                        _logger.LogInformation("Found ship-to: Code={Code}, Name={Name}, City={City}, State={State}",
+                            shipToCode, shipTo.Name, shipTo.City, shipTo.State);
+
+                        shipTos.Add(shipTo);
+
+                        object nextResult = shipToSvc.nMoveNext();
+                        int nextMoveResult = nextResult != null ? Convert.ToInt32(nextResult) : 0;
+                        hasMore = nextMoveResult == 1;
+                    }
+
+                    _logger.LogInformation("Found {Count} ship-to addresses for {Division}-{CustomerNo} using nFind",
+                        shipTos.Count, arDivisionNo, customerNo);
+
+                    return shipTos;
+                }
+            }
+            catch (Exception findEx)
+            {
+                _logger.LogWarning(findEx, "nFind approach failed, falling back to scan");
+            }
+
+            // Fallback: scan from beginning (slower but more reliable)
+            _logger.LogInformation("Falling back to full scan for ship-to addresses");
+
             object firstResult = shipToSvc.nMoveFirst();
             int moveResult = firstResult != null ? Convert.ToInt32(firstResult) : 0;
-            
+
             if (moveResult != 1)
             {
-                _logger.LogDebug("No ship-to addresses in database");
+                _logger.LogWarning("No ship-to addresses in database at all");
                 return shipTos;
             }
-            
-            bool hasMore = true;
+
+            bool scanMore = true;
             int scanned = 0;
-            int maxScan = 1000; // Scan limit - balance between speed and completeness
-            
-            while (hasMore && scanned < maxScan)
+            int maxScan = 2000; // Increased scan limit
+
+            while (scanMore && scanned < maxScan)
             {
                 scanned++;
                 cancellationToken.ThrowIfCancellationRequested();
-                
-                // Check if this record belongs to our customer
+
                 string recordDiv = GetStringValue(shipToSvc, "ARDivisionNo$");
                 string recordCust = GetStringValue(shipToSvc, "CustomerNo$");
-                
-                // Log first few records to debug matching
-                if (scanned <= 5)
+
+                // Log first few and periodically to debug
+                if (scanned <= 10 || scanned % 500 == 0)
                 {
-                    _logger.LogInformation("Ship-to record {N}: Div=[{Div}] Cust=[{Cust}] (looking for [{LookDiv}]-[{LookCust}])",
+                    _logger.LogInformation("Scan #{N}: Div=[{Div}] Cust=[{Cust}] (looking for [{LookDiv}]-[{LookCust}])",
                         scanned, recordDiv, recordCust, arDivisionNo, customerNo);
                 }
-                
+
                 if (recordDiv == arDivisionNo && recordCust == customerNo)
                 {
                     string shipToCode = GetStringValue(shipToSvc, "ShipToCode$");
-                    
+
                     var shipTo = new CustomerShipToDto
                     {
                         ShipToCode = shipToCode,
@@ -439,24 +515,22 @@ public class CustomerService : ICustomerService
                         Country = GetStringValue(shipToSvc, "ShipToCountryCode$"),
                         WarehouseCode = GetStringValue(shipToSvc, "WarehouseCode$"),
                         ShipVia = GetStringValue(shipToSvc, "ShipVia$"),
-                        IsDefault = false // Will be set later based on customer's DefaultShipToCode
+                        IsDefault = false
                     };
-                    
+
+                    _logger.LogInformation("Found ship-to via scan: Code={Code}, City={City}", shipToCode, shipTo.City);
                     shipTos.Add(shipTo);
-                    
-                    // If we found enough, stop looking
+
                     if (shipTos.Count >= 30)
-                    {
                         break;
-                    }
                 }
 
                 object nextResult = shipToSvc.nMoveNext();
                 int nextMoveResult = nextResult != null ? Convert.ToInt32(nextResult) : 0;
-                hasMore = nextMoveResult == 1;
+                scanMore = nextMoveResult == 1;
             }
 
-            _logger.LogInformation("Found {Count} ship-to addresses for {Division}-{CustomerNo} after scanning {Scanned} records", 
+            _logger.LogInformation("Found {Count} ship-to addresses for {Division}-{CustomerNo} after scanning {Scanned} records",
                 shipTos.Count, arDivisionNo, customerNo, scanned);
         }
         catch (Exception ex)
@@ -481,10 +555,14 @@ public class CustomerService : ICustomerService
         string customerNo = GetStringValue(customerSvc, "CustomerNo$");
         
         // Get default ship-to code from customer record (this is where Sage stores the "Primary" ship-to)
-        string defaultShipToCode = GetStringValue(customerSvc, "ShipToCode$");
+        // Try multiple possible field names - Sage 100 uses "PrimaryShipToCode$" on AR_Customer
+        string defaultShipToCode = GetStringValue(customerSvc, "PrimaryShipToCode$");
         if (string.IsNullOrEmpty(defaultShipToCode))
         {
-            // Try alternate field name
+            defaultShipToCode = GetStringValue(customerSvc, "ShipToCode$");
+        }
+        if (string.IsNullOrEmpty(defaultShipToCode))
+        {
             defaultShipToCode = GetStringValue(customerSvc, "DefaultShipToCode$");
         }
         
