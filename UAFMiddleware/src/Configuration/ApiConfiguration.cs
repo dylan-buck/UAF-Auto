@@ -6,3 +6,4 @@ public class ApiConfiguration
     public string ApiKey { get; set; } = string.Empty;
 }
 
+

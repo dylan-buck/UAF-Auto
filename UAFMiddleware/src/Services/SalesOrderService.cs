@@ -149,8 +149,42 @@ public class SalesOrderService : ISalesOrderService
                 salesOrder.nSetValue("Comment$", request.Comment);
             }
 
-            // Set ship-to address if provided
-            if (request.ShipToAddress != null)
+            // Set ship-to code from customer resolution (preferred method)
+            // This links the order to an existing ship-to address in Sage
+            if (!string.IsNullOrEmpty(request.ShipToCode))
+            {
+                object shipToResult = salesOrder.nSetValue("ShipToCode$", request.ShipToCode);
+                int shipToSetResult = shipToResult != null ? Convert.ToInt32(shipToResult) : 0;
+                _logger.LogInformation("Set ShipToCode$ = {ShipToCode}, result: {Result}",
+                    request.ShipToCode, shipToSetResult);
+
+                if (shipToSetResult == 0)
+                {
+                    string shipToError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                    _logger.LogWarning("ShipToCode$ set warning: {Error}", shipToError);
+                }
+            }
+
+            // Set warehouse code from customer resolution
+            if (!string.IsNullOrEmpty(request.WarehouseCode))
+            {
+                object whseResult = salesOrder.nSetValue("WarehouseCode$", request.WarehouseCode);
+                int whseSetResult = whseResult != null ? Convert.ToInt32(whseResult) : 0;
+                _logger.LogInformation("Set WarehouseCode$ = {WarehouseCode}, result: {Result}",
+                    request.WarehouseCode, whseSetResult);
+            }
+
+            // Set ship via from customer resolution
+            if (!string.IsNullOrEmpty(request.ShipVia))
+            {
+                object shipViaResult = salesOrder.nSetValue("ShipVia$", request.ShipVia);
+                int shipViaSetResult = shipViaResult != null ? Convert.ToInt32(shipViaResult) : 0;
+                _logger.LogInformation("Set ShipVia$ = {ShipVia}, result: {Result}",
+                    request.ShipVia, shipViaSetResult);
+            }
+
+            // Set ship-to address manually only if ShipToCode is not provided
+            if (string.IsNullOrEmpty(request.ShipToCode) && request.ShipToAddress != null)
             {
                 SetShipToAddress(salesOrder, request.ShipToAddress);
             }

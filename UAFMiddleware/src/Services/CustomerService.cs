@@ -721,12 +721,12 @@ public class CustomerService : ICustomerService
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Resolving customer: Name={Name}, ShipToCity={City}, ShipToState={State}",
-            request.CustomerName, 
+            request.CustomerName,
             request.ShipToAddress?.City,
             request.ShipToAddress?.State);
 
         var response = new CustomerResolutionResponse();
-        
+
         try
         {
             // Step 1: Search for customers by name
@@ -735,138 +735,143 @@ public class CustomerService : ICustomerService
                 Name = ExtractCompanyName(request.CustomerName),
                 Limit = 20  // Get top 20 candidates
             };
-            
+
             var searchResult = await SearchCustomersAsync(searchRequest, cancellationToken);
-            
+
             if (searchResult.Customers.Count == 0)
             {
                 response.Resolved = false;
                 response.Recommendation = "REJECTED";
                 response.Message = $"No customers found matching name '{request.CustomerName}'";
+                response.ScoringDetails.Add("❌ No customers found with matching name");
                 return response;
             }
-            
+
             _logger.LogInformation("Found {Count} customer candidates", searchResult.Customers.Count);
-            
+
             // Step 2: Pre-filter by name score - only fetch full details for good name matches
             var candidatesWithNameScore = searchResult.Customers
                 .Select(c => new { Customer = c, NameScore = ScoreNameMatch(request.CustomerName, c.CustomerName) })
                 .OrderByDescending(c => c.NameScore)
                 .ToList();
-            
+
             // Only process top 5 candidates with name score >= 50%
             var topCandidates = candidatesWithNameScore
                 .Where(c => c.NameScore >= 0.5)
                 .Take(5)
                 .ToList();
-            
+
             _logger.LogInformation("Processing {Count} top candidates (filtered from {Total} by name score)",
                 topCandidates.Count, searchResult.Customers.Count);
-            
+
             // Step 3: Score each top candidate with full details
             foreach (var item in topCandidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                
+
                 // Get full customer details with ship-to addresses
                 var fullCustomer = await GetCustomerAsync(item.Customer.CustomerNumber, cancellationToken);
                 if (fullCustomer == null) continue;
-                
+
                 var matchResult = ScoreCustomerMatch(request, fullCustomer);
                 matchResult.CustomerDetails = fullCustomer;
                 response.Candidates.Add(matchResult);
             }
-            
-            // Step 3: Sort by score and get best match
+
+            // Sort by score and get best match
             response.Candidates = response.Candidates
                 .OrderByDescending(c => c.Score)
                 .ToList();
-            
+
             if (response.Candidates.Count == 0)
             {
                 response.Resolved = false;
                 response.Recommendation = "REJECTED";
                 response.Message = "Could not score any customer matches";
+                response.ScoringDetails.Add("❌ Could not score any customer matches");
                 return response;
             }
-            
+
             response.BestMatch = response.Candidates.First();
             response.Confidence = Math.Round(response.BestMatch.Score, 4); // Round to avoid floating point issues
 
-            // Step 4: Determine recommendation based on confidence
+            // SIMPLIFIED PASS/FAIL LOGIC
+            // Ship-to addresses are unique per customer - a match identifies the customer
+            // Binary decision: either we can create the order or we can't
+
             var issues = new List<string>();
 
-            if (response.Confidence >= request.MinConfidence)
-            {
-                response.Resolved = true;
-                response.Recommendation = "AUTO_PROCESS";
-                response.Message = $"High confidence match: {response.BestMatch.CustomerName} " +
-                    $"(Score: {response.Confidence:P0})";
-                
-                // Check if this is the default ship-to
-                if (!response.BestMatch.IsDefaultShipTo)
-                {
-                    response.Resolved = false;
-                    response.Recommendation = "MANUAL_REVIEW";
-                    issues.Add("PO ship-to does NOT match customer's default ship-to address");
-                }
-            }
-            else if (response.Confidence >= 0.5)
-            {
-                response.Resolved = false;
-                response.Recommendation = "MANUAL_REVIEW";
-                response.Message = $"Medium confidence match: {response.BestMatch.CustomerName} " +
-                    $"(Score: {response.Confidence:P0}). Manual verification recommended.";
-            }
-            else
+            // Check 1: Did we find a ship-to match?
+            bool hasShipToMatch = !string.IsNullOrEmpty(response.BestMatch.MatchedShipToCode);
+
+            if (!hasShipToMatch)
             {
                 response.Resolved = false;
                 response.Recommendation = "REJECTED";
-                response.Message = $"Low confidence: Best match is {response.BestMatch.CustomerName} " +
-                    $"(Score: {response.Confidence:P0}). Cannot auto-process.";
+                response.Message = "Ship-to address does not match any customer on file";
+                issues.Add("Ship-to address does not match any address on the customer's account");
             }
-            
-            // Step 5: Validate ship-to has required fields for order processing
-            if (response.BestMatch.IsDefaultShipTo || response.Confidence >= 0.5)
+            else
             {
-                // Check for missing warehouse code
-                if (string.IsNullOrWhiteSpace(response.BestMatch.WarehouseCode))
+                // Check 2: Does the matched ship-to have required config?
+                bool hasWarehouseCode = !string.IsNullOrWhiteSpace(response.BestMatch.WarehouseCode);
+                bool hasShipVia = !string.IsNullOrWhiteSpace(response.BestMatch.ShipVia);
+
+                if (!hasWarehouseCode)
                 {
-                    response.Resolved = false;
-                    response.Recommendation = "MANUAL_REVIEW";
-                    issues.Add("Ship-to address has no warehouse code configured in Sage");
+                    issues.Add("Ship-to missing warehouse configuration");
                 }
-                
-                // Check for missing ship via
-                if (string.IsNullOrWhiteSpace(response.BestMatch.ShipVia))
+
+                if (!hasShipVia)
+                {
+                    issues.Add("Ship-to missing shipping method configuration");
+                }
+
+                // PASS only if ship-to matched AND has both WarehouseCode and ShipVia
+                if (hasWarehouseCode && hasShipVia)
+                {
+                    response.Resolved = true;
+                    response.Recommendation = "PASS";
+                    response.Message = $"Customer identified: {response.BestMatch.CustomerName} " +
+                        $"(Ship-to: {response.BestMatch.MatchedShipToCode})";
+                }
+                else
                 {
                     response.Resolved = false;
-                    response.Recommendation = "MANUAL_REVIEW";
-                    issues.Add("Ship-to address has no ship via method configured in Sage");
+                    response.Recommendation = "REJECTED";
+                    response.Message = $"Ship-to configuration incomplete for {response.BestMatch.CustomerName}";
                 }
             }
-            
+
             // Add issues to message if any
-            if (issues.Count > 0)
+            if (issues.Count > 0 && !response.Message.Contains("ISSUES"))
             {
                 response.Message += " - ISSUES: " + string.Join("; ", issues);
             }
-            
+
             // Add scoring details
             response.ScoringDetails = response.BestMatch.ScoreBreakdown.Details;
-            
+
             // Add issue details to scoring
             foreach (var issue in issues)
             {
-                response.ScoringDetails.Add($"⚠️ {issue}");
+                response.ScoringDetails.Add($"❌ {issue}");
             }
-            
+
+            // Add success indicators
+            if (response.Recommendation == "PASS")
+            {
+                response.ScoringDetails.Add($"✅ Ship-to matched: {response.BestMatch.MatchedShipToCode}");
+                response.ScoringDetails.Add($"✅ Warehouse configured: {response.BestMatch.WarehouseCode}");
+                response.ScoringDetails.Add($"✅ Ship via configured: {response.BestMatch.ShipVia}");
+            }
+
             _logger.LogInformation(
-                "Customer resolution: {Recommendation} - {CustomerNumber} ({Score:P0})",
-                response.Recommendation, 
-                response.BestMatch.CustomerNumber, 
-                response.Confidence);
-            
+                "Customer resolution: {Recommendation} - {CustomerNumber} (ShipTo: {ShipToCode})",
+                response.Recommendation,
+                response.BestMatch.CustomerNumber,
+                response.BestMatch.MatchedShipToCode ?? "none");
+
             return response;
         }
         catch (Exception ex)
