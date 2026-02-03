@@ -7,6 +7,7 @@ public class SalesOrderResponse
     public string? Message { get; set; }
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
+    public List<string>? InvalidItems { get; set; }
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
 

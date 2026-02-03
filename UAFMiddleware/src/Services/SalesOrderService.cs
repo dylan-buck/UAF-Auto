@@ -144,10 +144,8 @@ public class SalesOrderService : ISalesOrderService
                 salesOrder.nSetValue("ShipExpireDate$", request.ShipDate);
             }
             
-            if (!string.IsNullOrEmpty(request.Comment))
-            {
-                salesOrder.nSetValue("Comment$", request.Comment);
-            }
+            // Always set automation comment for audit trail
+            salesOrder.nSetValue("Comment$", "Created By Automation");
 
             // Set ship-to code from customer resolution (preferred method)
             // This links the order to an existing ship-to address in Sage
@@ -212,45 +210,53 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogWarning("nAddLine warning: {Error}", lineError);
                 }
 
+                // Transform item code (strip ZLP/ZLPSP prefixes)
+                string transformedItemCode = TransformItemCode(line.ItemCode);
+                if (transformedItemCode != line.ItemCode)
+                {
+                    _logger.LogInformation("Transformed ItemCode: '{Original}' → '{Transformed}'",
+                        line.ItemCode, transformedItemCode);
+                }
+
                 // IMPORTANT: Set ItemCode$ FIRST - this loads item defaults (pricing, warehouse, etc.)
-                _logger.LogInformation("Setting ItemCode$ = '{ItemCode}'...", line.ItemCode);
+                _logger.LogInformation("Setting ItemCode$ = '{ItemCode}'...", transformedItemCode);
                 object? itemResultObj;
                 try
                 {
-                    itemResultObj = lines.nSetValue("ItemCode$", line.ItemCode);
+                    itemResultObj = lines.nSetValue("ItemCode$", transformedItemCode);
                 }
                 catch (COMException comEx)
                 {
                     _logger.LogError(comEx, "COM exception setting ItemCode$");
                     throw;
                 }
-                
+
                 // Handle empty/null returns - treat as failure
                 int itemResult = 0;
                 if (itemResultObj != null && !string.IsNullOrEmpty(itemResultObj.ToString()))
                 {
                     itemResult = Convert.ToInt32(itemResultObj);
                 }
-                _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", line.ItemCode, itemResult);
-                
+                _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", transformedItemCode, itemResult);
+
                 if (itemResult == 0)
                 {
                     string itemError = "";
                     try { itemError = lines.sLastErrorMsg ?? ""; } catch { }
                     _logger.LogError("ItemCode$ set FAILED. Error: '{Error}'", itemError);
-                    
+
                     // Try to get more info about why it failed
                     try
                     {
                         // Check if item exists via CI_Item lookup
                         dynamic itemObj = session.ProvideXScript.NewObject("CI_Item_bus", session.Session);
-                        object findResult = itemObj.nFind(line.ItemCode);
+                        object findResult = itemObj.nFind(transformedItemCode);
                         int found = findResult != null ? Convert.ToInt32(findResult) : 0;
-                        _logger.LogInformation("CI_Item lookup for '{ItemCode}': found={Found}", line.ItemCode, found);
+                        _logger.LogInformation("CI_Item lookup for '{ItemCode}': found={Found}", transformedItemCode, found);
                         if (found == 0)
                         {
                             string findError = itemObj.sLastErrorMsg ?? "";
-                            _logger.LogError("Item '{ItemCode}' not found in CI_Item. Error: {Error}", line.ItemCode, findError);
+                            _logger.LogError("Item '{ItemCode}' not found in CI_Item. Error: {Error}", transformedItemCode, findError);
                         }
                         if (Marshal.IsComObject(itemObj)) Marshal.ReleaseComObject(itemObj);
                     }
@@ -258,9 +264,16 @@ public class SalesOrderService : ISalesOrderService
                     {
                         _logger.LogWarning(ex, "Could not verify item existence");
                     }
-                    
-                    // Don't continue with invalid item
-                    throw new InvalidOperationException($"Failed to set ItemCode$ '{line.ItemCode}': {(string.IsNullOrEmpty(itemError) ? "Unknown error - item may not exist" : itemError)}");
+
+                    // Return structured error response instead of throwing
+                    return new SalesOrderResponse
+                    {
+                        Success = false,
+                        ErrorCode = "INVALID_ITEM",
+                        ErrorMessage = $"Item '{transformedItemCode}' not found in Sage inventory",
+                        InvalidItems = new List<string> { line.ItemCode },
+                        Message = $"Line {lineNum}: Invalid item code '{line.ItemCode}'"
+                    };
                 }
 
                 // Set quantity (convert to double for COM compatibility)
@@ -470,24 +483,46 @@ public class SalesOrderService : ISalesOrderService
     {
         if (!string.IsNullOrEmpty(address.Name))
             salesOrder.nSetValue("ShipToName$", address.Name);
-        
+
         if (!string.IsNullOrEmpty(address.Address1))
             salesOrder.nSetValue("ShipToAddress1$", address.Address1);
-        
+
         if (!string.IsNullOrEmpty(address.Address2))
             salesOrder.nSetValue("ShipToAddress2$", address.Address2);
-        
+
         if (!string.IsNullOrEmpty(address.City))
             salesOrder.nSetValue("ShipToCity$", address.City);
-        
+
         if (!string.IsNullOrEmpty(address.State))
             salesOrder.nSetValue("ShipToState$", address.State);
-        
+
         if (!string.IsNullOrEmpty(address.ZipCode))
             salesOrder.nSetValue("ShipToZipCode$", address.ZipCode);
-        
+
         if (!string.IsNullOrEmpty(address.Country))
             salesOrder.nSetValue("ShipToCountryCode$", address.Country);
+    }
+
+    private string TransformItemCode(string itemCode)
+    {
+        if (string.IsNullOrWhiteSpace(itemCode))
+            return itemCode;
+
+        var trimmed = itemCode.Trim();
+
+        // ZLPSP prefix (check first - longer prefix)
+        if (trimmed.StartsWith("ZLPSP", StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmed.Substring(5); // Remove "ZLPSP"
+        }
+
+        // ZLP prefix
+        if (trimmed.StartsWith("ZLP", StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmed.Substring(3); // Remove "ZLP"
+        }
+
+        return trimmed;
     }
 }
 
