@@ -39,12 +39,12 @@ public class InventoryService : IInventoryService
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
 
-            // Create CI_Item_svc object for looking up items
-            itemSvc = session.ProvideXScript.NewObject("CI_Item_svc", session.Session);
+            // Create IM_ItemCode_svc object for looking up items
+            itemSvc = session.ProvideXScript.NewObject("IM_ItemCode_svc", session.Session);
 
             if (itemSvc == null)
             {
-                throw new InvalidOperationException("Failed to create CI_Item_svc object");
+                throw new InvalidOperationException("Failed to create IM_ItemCode_svc object");
             }
 
             foreach (var itemCode in itemCodes)
@@ -119,11 +119,11 @@ public class InventoryService : IInventoryService
         try
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
-            itemSvc = session.ProvideXScript.NewObject("CI_Item_svc", session.Session);
+            itemSvc = session.ProvideXScript.NewObject("IM_ItemCode_svc", session.Session);
 
             if (itemSvc == null)
             {
-                throw new InvalidOperationException("Failed to create CI_Item_svc object");
+                throw new InvalidOperationException("Failed to create IM_ItemCode_svc object");
             }
 
             return await CheckItemExistsInternal(itemSvc, itemCode.Trim());
