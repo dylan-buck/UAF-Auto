@@ -39,12 +39,29 @@ public class InventoryService : IInventoryService
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
 
-            // Create IM_ItemCode_svc object for looking up items
-            itemSvc = session.ProvideXScript.NewObject("IM_ItemCode_svc", session.Session);
+            // Set module context for Common Information (required for CI objects)
+            try
+            {
+                dynamic sess = session.Session;
+                sess.nSetModule("C/I");
+                int taskId = sess.nLookupTask("CI_ItemCode_ui");
+                if (taskId != 0)
+                {
+                    sess.nSetProgram(taskId);
+                }
+                _logger.LogDebug("Set module context to C/I for item validation");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not set C/I module context (continuing anyway)");
+            }
+
+            // Create CI_ItemCode_bus object for looking up items
+            itemSvc = session.ProvideXScript.NewObject("CI_ItemCode_bus", session.Session);
 
             if (itemSvc == null)
             {
-                throw new InvalidOperationException("Failed to create IM_ItemCode_svc object");
+                throw new InvalidOperationException("Failed to create CI_ItemCode_bus object");
             }
 
             foreach (var itemCode in itemCodes)
@@ -119,11 +136,28 @@ public class InventoryService : IInventoryService
         try
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
-            itemSvc = session.ProvideXScript.NewObject("IM_ItemCode_svc", session.Session);
+
+            // Set module context for Common Information (required for CI objects)
+            try
+            {
+                dynamic sess = session.Session;
+                sess.nSetModule("C/I");
+                int taskId = sess.nLookupTask("CI_ItemCode_ui");
+                if (taskId != 0)
+                {
+                    sess.nSetProgram(taskId);
+                }
+            }
+            catch
+            {
+                // Continue anyway - module context is best effort
+            }
+
+            itemSvc = session.ProvideXScript.NewObject("CI_ItemCode_bus", session.Session);
 
             if (itemSvc == null)
             {
-                throw new InvalidOperationException("Failed to create IM_ItemCode_svc object");
+                throw new InvalidOperationException("Failed to create CI_ItemCode_bus object");
             }
 
             return await CheckItemExistsInternal(itemSvc, itemCode.Trim());
