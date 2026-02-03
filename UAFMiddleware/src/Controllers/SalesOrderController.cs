@@ -69,7 +69,14 @@ public class SalesOrderController : ControllerBase
                     "Sales order creation failed: {ErrorCode} - {ErrorMessage}",
                     result.ErrorCode, result.ErrorMessage);
                 
-                // Determine appropriate status code
+                // Return 200 for business logic errors so workflows can read the response
+                // and route based on success/errorCode fields
+                if (result.ErrorCode == "INVALID_ITEM")
+                {
+                    return Ok(result);
+                }
+
+                // Determine appropriate status code for other errors
                 var statusCode = result.ErrorCode switch
                 {
                     "CUSTOMER_NOT_FOUND" => 400,
