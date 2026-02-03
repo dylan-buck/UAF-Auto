@@ -1,21 +1,19 @@
-using System.Runtime.InteropServices;
-
 namespace UAFMiddleware.Services;
 
 public class InventoryService : IInventoryService
 {
-    private readonly IProvideXSessionManager _sessionManager;
     private readonly ILogger<InventoryService> _logger;
 
-    public InventoryService(
-        IProvideXSessionManager sessionManager,
-        ILogger<InventoryService> logger)
+    public InventoryService(ILogger<InventoryService> logger)
     {
-        _sessionManager = sessionManager;
         _logger = logger;
     }
 
-    public async Task<ItemValidationResult> ValidateItemCodesAsync(
+    /// <summary>
+    /// Validates item codes. Note: CI_ItemCode_bus is not accessible in this Sage installation,
+    /// so we pass all items as valid. Invalid items will be caught when the sales order is created.
+    /// </summary>
+    public Task<ItemValidationResult> ValidateItemCodesAsync(
         List<string> itemCodes,
         CancellationToken cancellationToken = default)
     {
@@ -27,185 +25,45 @@ public class InventoryService : IInventoryService
         if (itemCodes.Count == 0)
         {
             result.Message = "No item codes provided";
-            return result;
+            return Task.FromResult(result);
         }
 
-        _logger.LogInformation("Validating {Count} item codes", itemCodes.Count);
+        _logger.LogInformation("Validating {Count} item codes (pass-through mode - actual validation at order creation)", itemCodes.Count);
 
-        SessionWrapper? session = null;
-        dynamic? itemSvc = null;
-
-        try
+        // Pass all non-empty items as valid
+        // CI_ItemCode_bus is not accessible in this Sage installation (Error 90)
+        // Invalid items will be caught and reported when the sales order is created
+        foreach (var itemCode in itemCodes)
         {
-            session = await _sessionManager.GetSessionAsync(cancellationToken);
-
-            // Set module context for Common Information (required for CI objects)
-            try
+            if (string.IsNullOrWhiteSpace(itemCode))
             {
-                dynamic sess = session.Session;
-                sess.nSetModule("C/I");
-                int taskId = sess.nLookupTask("CI_ItemCode_ui");
-                if (taskId != 0)
-                {
-                    sess.nSetProgram(taskId);
-                }
-                _logger.LogDebug("Set module context to C/I for item validation");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not set C/I module context (continuing anyway)");
-            }
-
-            // Create CI_ItemCode_bus object for looking up items
-            itemSvc = session.ProvideXScript.NewObject("CI_ItemCode_bus", session.Session);
-
-            if (itemSvc == null)
-            {
-                throw new InvalidOperationException("Failed to create CI_ItemCode_bus object");
-            }
-
-            foreach (var itemCode in itemCodes)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (string.IsNullOrWhiteSpace(itemCode))
-                {
-                    result.InvalidItemCodes.Add(itemCode ?? "(empty)");
-                    continue;
-                }
-
-                bool exists = await CheckItemExistsInternal(itemSvc, itemCode.Trim());
-
-                if (exists)
-                {
-                    result.ValidItemCodes.Add(itemCode.Trim());
-                    _logger.LogDebug("Item '{ItemCode}' is valid", itemCode);
-                }
-                else
-                {
-                    result.InvalidItemCodes.Add(itemCode.Trim());
-                    _logger.LogWarning("Item '{ItemCode}' not found in Sage", itemCode);
-                }
-            }
-
-            // Build result message
-            if (result.AllValid)
-            {
-                result.Message = $"All {result.TotalChecked} item codes are valid";
-                _logger.LogInformation(result.Message);
+                result.InvalidItemCodes.Add(itemCode ?? "(empty)");
             }
             else
             {
-                result.Message = $"{result.InvalidItemCodes.Count} of {result.TotalChecked} item codes are invalid: {string.Join(", ", result.InvalidItemCodes)}";
-                _logger.LogWarning(result.Message);
+                result.ValidItemCodes.Add(itemCode.Trim());
             }
+        }
 
-            return result;
-        }
-        catch (Exception ex)
+        if (result.AllValid)
         {
-            _logger.LogError(ex, "Error validating item codes");
-            throw;
+            result.Message = $"All {result.TotalChecked} item codes accepted (will be validated at order creation)";
         }
-        finally
+        else
         {
-            if (itemSvc != null && Marshal.IsComObject(itemSvc))
-            {
-                Marshal.ReleaseComObject(itemSvc);
-            }
+            result.Message = $"{result.InvalidItemCodes.Count} empty item codes filtered out";
+        }
 
-            if (session != null)
-            {
-                _sessionManager.ReleaseSession(session);
-            }
-        }
+        _logger.LogInformation(result.Message);
+        return Task.FromResult(result);
     }
 
-    public async Task<bool> ItemExistsAsync(
+    public Task<bool> ItemExistsAsync(
         string itemCode,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(itemCode))
-        {
-            return false;
-        }
-
-        SessionWrapper? session = null;
-        dynamic? itemSvc = null;
-
-        try
-        {
-            session = await _sessionManager.GetSessionAsync(cancellationToken);
-
-            // Set module context for Common Information (required for CI objects)
-            try
-            {
-                dynamic sess = session.Session;
-                sess.nSetModule("C/I");
-                int taskId = sess.nLookupTask("CI_ItemCode_ui");
-                if (taskId != 0)
-                {
-                    sess.nSetProgram(taskId);
-                }
-            }
-            catch
-            {
-                // Continue anyway - module context is best effort
-            }
-
-            itemSvc = session.ProvideXScript.NewObject("CI_ItemCode_bus", session.Session);
-
-            if (itemSvc == null)
-            {
-                throw new InvalidOperationException("Failed to create CI_ItemCode_bus object");
-            }
-
-            return await CheckItemExistsInternal(itemSvc, itemCode.Trim());
-        }
-        finally
-        {
-            if (itemSvc != null && Marshal.IsComObject(itemSvc))
-            {
-                Marshal.ReleaseComObject(itemSvc);
-            }
-
-            if (session != null)
-            {
-                _sessionManager.ReleaseSession(session);
-            }
-        }
-    }
-
-    private Task<bool> CheckItemExistsInternal(dynamic itemSvc, string itemCode)
-    {
-        try
-        {
-            // Use nSetKeyValue + nSetKey pattern (matches working VBS pattern)
-            itemSvc.nSetKeyValue("ItemCode$", itemCode);
-            object setKeyResult = itemSvc.nSetKey();
-            int found = setKeyResult != null ? Convert.ToInt32(setKeyResult) : 0;
-
-            // nSetKey returns 1 if exact key exists, 0 if not found
-            return Task.FromResult(found == 1);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error checking if item '{ItemCode}' exists", itemCode);
-            return Task.FromResult(false);
-        }
-    }
-
-    private string GetStringValue(dynamic obj, string fieldName)
-    {
-        try
-        {
-            string value = "";
-            obj.nGetValue(fieldName, ref value);
-            return value ?? "";
-        }
-        catch
-        {
-            return "";
-        }
+        // Pass-through mode - return true for non-empty items
+        // Actual validation happens at sales order creation
+        return Task.FromResult(!string.IsNullOrWhiteSpace(itemCode));
     }
 }
