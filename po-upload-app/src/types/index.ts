@@ -86,3 +86,14 @@ export type ProcessingStage =
   | 'resolving'
   | 'creating'
   | 'complete';
+
+// History log entry from Google Sheets
+export interface POHistoryEntry {
+  timestamp: string;
+  poNumber: string;
+  customer: string;
+  result: 'PASS' | 'REJECTED';
+  salesOrderNumber: string;
+  rejectionReason: string;
+  fileName: string;
+}

@@ -1,7 +1,7 @@
 import type { ProcessingResult, ProcessingStage } from '../types';
 
-// n8n webhook URL - hardcoded for now (env var not loading reliably)
-const N8N_WEBHOOK_URL = 'https://dbuck.app.n8n.cloud/webhook/po-upload';
+// n8n webhook URL
+const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://dbuck.app.n8n.cloud/webhook/po-upload';
 
 // Toggle between mock and real API
 const USE_MOCK = false;
