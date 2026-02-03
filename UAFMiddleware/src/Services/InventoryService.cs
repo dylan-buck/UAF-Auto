@@ -39,12 +39,12 @@ public class InventoryService : IInventoryService
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
 
-            // Create CI_Item_bus object for looking up items
-            itemSvc = session.ProvideXScript.NewObject("CI_Item_bus", session.Session);
+            // Create CI_Item_svc object for looking up items
+            itemSvc = session.ProvideXScript.NewObject("CI_Item_svc", session.Session);
 
             if (itemSvc == null)
             {
-                throw new InvalidOperationException("Failed to create CI_Item_bus object");
+                throw new InvalidOperationException("Failed to create CI_Item_svc object");
             }
 
             foreach (var itemCode in itemCodes)
@@ -119,11 +119,11 @@ public class InventoryService : IInventoryService
         try
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
-            itemSvc = session.ProvideXScript.NewObject("CI_Item_bus", session.Session);
+            itemSvc = session.ProvideXScript.NewObject("CI_Item_svc", session.Session);
 
             if (itemSvc == null)
             {
-                throw new InvalidOperationException("Failed to create CI_Item_bus object");
+                throw new InvalidOperationException("Failed to create CI_Item_svc object");
             }
 
             return await CheckItemExistsInternal(itemSvc, itemCode.Trim());
@@ -146,19 +146,13 @@ public class InventoryService : IInventoryService
     {
         try
         {
-            // Use nSetKeyValue + nFind pattern to locate item
+            // Use nSetKeyValue + nSetKey pattern (matches working VBS pattern)
             itemSvc.nSetKeyValue("ItemCode$", itemCode);
-            object findResult = itemSvc.nFind();
-            int found = findResult != null ? Convert.ToInt32(findResult) : 0;
+            object setKeyResult = itemSvc.nSetKey();
+            int found = setKeyResult != null ? Convert.ToInt32(setKeyResult) : 0;
 
-            if (found == 1)
-            {
-                // Verify we actually found the exact item (nFind positions >= the key)
-                string foundItemCode = GetStringValue(itemSvc, "ItemCode$");
-                return Task.FromResult(string.Equals(foundItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
-            }
-
-            return Task.FromResult(false);
+            // nSetKey returns 1 if exact key exists, 0 if not found
+            return Task.FromResult(found == 1);
         }
         catch (Exception ex)
         {
