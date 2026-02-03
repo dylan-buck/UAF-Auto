@@ -39,8 +39,8 @@ public class InventoryService : IInventoryService
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
 
-            // Create CI_Item_svc object for looking up items
-            itemSvc = session.ProvideXScript.NewObject("CI_Item_svc", session.Session);
+            // Create CI_ItemCode_bus object for looking up items
+            itemSvc = session.ProvideXScript.NewObject("CI_ItemCode_bus", session.Session);
 
             if (itemSvc == null)
             {
@@ -119,11 +119,11 @@ public class InventoryService : IInventoryService
         try
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
-            itemSvc = session.ProvideXScript.NewObject("CI_Item_svc", session.Session);
+            itemSvc = session.ProvideXScript.NewObject("CI_ItemCode_bus", session.Session);
 
             if (itemSvc == null)
             {
-                throw new InvalidOperationException("Failed to create CI_Item_svc object");
+                throw new InvalidOperationException("Failed to create CI_ItemCode_bus object");
             }
 
             return await CheckItemExistsInternal(itemSvc, itemCode.Trim());
