@@ -1,0 +1,19 @@
+# Cloudflare Named Tunnel Configuration
+# Tunnel: uaf-middleware
+# Permanent URL: https://sage.uaf-automation.uk -> localhost:3000
+#
+# Setup (run on Comp-08):
+#   cloudflared tunnel login
+#   cloudflared tunnel create uaf-middleware
+#   cloudflared tunnel route dns uaf-middleware sage.uaf-automation.uk
+#   cloudflared service install --config C:\UAF-Auto\.cloudflared\config.yml
+#
+# After 'tunnel create', replace <TUNNEL-ID> below with the actual tunnel UUID.
+
+tunnel: 20490195-f7ab-41c2-8e0d-5d267305afef
+credentials-file: C:\Users\dbuck\.cloudflared\20490195-f7ab-41c2-8e0d-5d267305afef.json
+
+ingress:
+  - hostname: sage.uaf-automation.uk
+    service: http://localhost:3000
+  - service: http_status:404
