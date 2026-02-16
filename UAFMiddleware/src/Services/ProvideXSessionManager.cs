@@ -11,12 +11,15 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
     private readonly ILogger<ProvideXSessionManager> _logger;
     private readonly ConcurrentBag<SessionWrapper> _availableSessions;
     private readonly ConcurrentDictionary<string, SessionWrapper> _activeSessions;
-    private readonly SemaphoreSlim _semaphore;
+    private SemaphoreSlim _semaphore;
     private bool _disposed;
     private bool _initialized;
+    private int _consecutiveHealthFailures;
+    private static readonly TimeSpan MaxSessionAge = TimeSpan.FromHours(4);
 
     public int AvailableSessions => _availableSessions.Count;
     public int ActiveSessions => _activeSessions.Count;
+    public int ConsecutiveHealthFailures => _consecutiveHealthFailures;
 
     public ProvideXSessionManager(
         IOptions<SageConfiguration> config,
@@ -222,9 +225,20 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             // Try to get an existing session from the pool
             if (_availableSessions.TryTake(out var session))
             {
+                // Recycle stale sessions
+                if (DateTime.UtcNow - session.CreatedAt > MaxSessionAge)
+                {
+                    _logger.LogInformation("Session {SessionId} is stale (age: {Age}), recycling",
+                        session.SessionId, DateTime.UtcNow - session.CreatedAt);
+                    DisposeSession(session);
+                    var freshSession = CreateNewSession();
+                    _activeSessions.TryAdd(freshSession.SessionId, freshSession);
+                    return freshSession;
+                }
+
                 session.LastUsed = DateTime.UtcNow;
                 _activeSessions.TryAdd(session.SessionId, session);
-                _logger.LogInformation("Retrieved session {SessionId} from pool. Available: {Available}, Active: {Active}", 
+                _logger.LogInformation("Retrieved session {SessionId} from pool. Available: {Available}, Active: {Active}",
                     session.SessionId, _availableSessions.Count, _activeSessions.Count);
                 return session;
             }
@@ -292,10 +306,11 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
         try
         {
             EnsureInitialized();
-            
+
             if (_availableSessions.IsEmpty && _activeSessions.IsEmpty)
             {
                 _logger.LogWarning("No sessions in pool");
+                Interlocked.Increment(ref _consecutiveHealthFailures);
                 return false;
             }
 
@@ -303,8 +318,16 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             var session = await GetSessionAsync();
             try
             {
-                // Simple test - the session exists and is valid
-                return session.Session != null;
+                var healthy = session.Session != null;
+                if (healthy)
+                {
+                    Interlocked.Exchange(ref _consecutiveHealthFailures, 0);
+                }
+                else
+                {
+                    Interlocked.Increment(ref _consecutiveHealthFailures);
+                }
+                return healthy;
             }
             finally
             {
@@ -313,9 +336,39 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Health check failed");
+            Interlocked.Increment(ref _consecutiveHealthFailures);
+            _logger.LogWarning(ex, "Health check failed (consecutive failures: {Failures})", _consecutiveHealthFailures);
             return false;
         }
+    }
+
+    public void ResetPool()
+    {
+        _logger.LogWarning("Resetting session pool — disposing all sessions and reinitializing");
+
+        // Dispose all available sessions
+        while (_availableSessions.TryTake(out var session))
+        {
+            DisposeSession(session);
+        }
+
+        // Dispose active sessions (they may be leaked/stuck)
+        foreach (var session in _activeSessions.Values)
+        {
+            DisposeSession(session);
+        }
+        _activeSessions.Clear();
+
+        // Replace the semaphore to clear any stuck waiters
+        var oldSemaphore = _semaphore;
+        _semaphore = new SemaphoreSlim(_config.SessionPoolSize, _config.SessionPoolSize);
+        try { oldSemaphore.Dispose(); } catch { /* best effort */ }
+
+        // Allow reinitialization (counter is NOT reset — only a passing health check resets it,
+        // so that consecutive failures can still escalate to self-restart if pool reset doesn't help)
+        _initialized = false;
+
+        _logger.LogInformation("Session pool reset complete — will reinitialize on next request");
     }
 
     public void Dispose()

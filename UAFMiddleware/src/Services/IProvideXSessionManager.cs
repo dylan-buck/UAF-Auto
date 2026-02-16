@@ -8,6 +8,8 @@ public interface IProvideXSessionManager
     Task<bool> IsHealthyAsync();
     int AvailableSessions { get; }
     int ActiveSessions { get; }
+    int ConsecutiveHealthFailures { get; }
+    void ResetPool();
 }
 
 public class SessionWrapper
