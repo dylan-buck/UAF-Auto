@@ -40,15 +40,21 @@ export async function uploadPODocument(
       body: formData,
     });
 
+    onStageChange?.('parsing');
+    const data = await response.json().catch(() => null);
+
+    // If we got valid JSON back (even on non-200), use it
+    if (data) {
+      onStageChange?.('complete');
+      return transformN8nResponse(data);
+    }
+
+    // No JSON body — generic HTTP error
     if (!response.ok) {
       throw new Error(`Server error: ${response.status}`);
     }
 
-    onStageChange?.('parsing');
-    const data = await response.json();
-
     onStageChange?.('complete');
-
     return transformN8nResponse(data);
   } catch (error) {
     console.error('Error uploading PO:', error);
@@ -65,8 +71,20 @@ function transformN8nResponse(data: unknown): ProcessingResult {
   const response = data as Record<string, unknown>;
 
   if (response.recommendation) {
-    // Normalize recommendation: PASS and AUTO_PROCESS both mean success
     const recommendation = response.recommendation as string;
+
+    // System error (middleware offline, etc.)
+    if (recommendation === 'ERROR') {
+      return {
+        status: 'error',
+        recommendation: 'ERROR',
+        message: response.message as string,
+        extractedData: response.extractedData as ProcessingResult['extractedData'],
+        issues: response.issues as string[],
+      };
+    }
+
+    // Normalize recommendation: PASS and AUTO_PROCESS both mean success
     const isSuccess = recommendation === 'PASS' || recommendation === 'AUTO_PROCESS';
 
     return {

@@ -6,6 +6,50 @@ interface ResultCardProps {
 }
 
 export function ResultCard({ result, fileName }: ResultCardProps) {
+  // Handle system errors (middleware offline, etc.)
+  if (result.status === 'error' || result.recommendation === 'ERROR') {
+    return (
+      <div className="text-center pt-4">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-50 mb-6">
+          <svg className="w-7 h-7 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+        </div>
+
+        <h2 className="text-[22px] font-semibold text-gray-900 mb-1">Service Unavailable</h2>
+        <p className="text-[14px] text-gray-400 mb-4">{fileName}</p>
+        <p className="text-[14px] text-gray-600 mb-6">
+          {result.message || 'Unable to connect to the order processing system.'}
+        </p>
+
+        {result.issues && result.issues.length > 0 && (
+          <div className="bg-amber-50 rounded-xl p-5 text-left mb-4">
+            <p className="text-[11px] font-medium text-amber-700 uppercase tracking-wider mb-2">Details</p>
+            {result.issues.map((issue, i) => (
+              <p key={i} className="text-[13px] text-gray-600 mb-1 last:mb-0">{issue}</p>
+            ))}
+          </div>
+        )}
+
+        {result.extractedData && (
+          <div className="bg-gray-50 rounded-xl p-5 text-left">
+            <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-2">Your PO was parsed successfully</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-1">Customer</p>
+                <p className="text-[13px] text-gray-900">{result.extractedData.customerName}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-1">PO #</p>
+                <p className="text-[13px] text-gray-900">{result.extractedData.poNumber}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Handle PASS (and legacy AUTO_PROCESS) as success
   if (result.recommendation === 'PASS' || result.recommendation === 'AUTO_PROCESS') {
     const order = result.salesOrder;

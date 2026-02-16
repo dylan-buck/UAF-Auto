@@ -144,11 +144,12 @@ export function UploadPage() {
 }
 
 function StatusDot({ status }: { status?: string }) {
-  // PASS and AUTO_PROCESS (legacy) are both success
   const color =
     status === 'PASS' || status === 'AUTO_PROCESS'
       ? 'bg-emerald-400'
-      : 'bg-rose-400';
+      : status === 'ERROR'
+        ? 'bg-amber-400'
+        : 'bg-rose-400';
   return <div className={`w-1.5 h-1.5 rounded-full ${color}`} />;
 }
 

@@ -51,7 +51,7 @@ export interface SalesOrderDetails {
 
 export interface ProcessingResult {
   status: 'processing' | 'success' | 'rejected' | 'error';
-  recommendation?: 'PASS' | 'REJECTED' | 'AUTO_PROCESS'; // PASS is new, AUTO_PROCESS for legacy
+  recommendation?: 'PASS' | 'REJECTED' | 'ERROR' | 'AUTO_PROCESS'; // PASS is new, AUTO_PROCESS for legacy
   confidence?: number;
   message?: string;
 
@@ -92,7 +92,7 @@ export interface POHistoryEntry {
   timestamp: string;
   poNumber: string;
   customer: string;
-  result: 'PASS' | 'REJECTED';
+  result: 'PASS' | 'REJECTED' | 'ERROR';
   salesOrderNumber: string;
   rejectionReason: string;
   fileName: string;

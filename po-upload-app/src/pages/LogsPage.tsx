@@ -12,7 +12,7 @@ export function LogsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'PASS' | 'REJECTED'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'PASS' | 'REJECTED' | 'ERROR'>('all');
 
   useEffect(() => {
     async function loadHistory() {
@@ -111,12 +111,13 @@ export function LogsPage() {
           </div>
           <select
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as 'all' | 'PASS' | 'REJECTED')}
+            onChange={(e) => setFilterStatus(e.target.value as 'all' | 'PASS' | 'REJECTED' | 'ERROR')}
             className="px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300 bg-white"
           >
             <option value="all">All Status</option>
             <option value="PASS">Passed</option>
             <option value="REJECTED">Rejected</option>
+            <option value="ERROR">Errors</option>
           </select>
         </div>
 
@@ -190,6 +191,14 @@ export function LogsPage() {
 function HistoryRow({ entry }: { entry: POHistoryEntry }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const isPass = entry.result === 'PASS';
+  const isError = entry.result === 'ERROR';
+
+  const badgeClass = isPass
+    ? 'bg-emerald-50 text-emerald-700'
+    : isError
+      ? 'bg-amber-50 text-amber-700'
+      : 'bg-rose-50 text-rose-700';
+  const badgeLabel = isPass ? 'Passed' : isError ? 'Error' : 'Rejected';
 
   return (
     <>
@@ -207,14 +216,8 @@ function HistoryRow({ entry }: { entry: POHistoryEntry }) {
           {entry.customer || '—'}
         </td>
         <td className="px-4 py-3">
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-              isPass
-                ? 'bg-emerald-50 text-emerald-700'
-                : 'bg-rose-50 text-rose-700'
-            }`}
-          >
-            {isPass ? 'Passed' : 'Rejected'}
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${badgeClass}`}>
+            {badgeLabel}
           </span>
         </td>
         <td className="px-4 py-3 text-sm font-mono text-gray-600">
