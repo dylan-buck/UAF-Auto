@@ -27,6 +27,9 @@ export async function uploadPODocument(
   console.log('[PO Upload] Using LIVE path, sending to:', N8N_WEBHOOK_URL);
   const { onStageChange } = options || {};
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120_000); // 2 min timeout
+
   try {
     onStageChange?.('uploading');
 
@@ -38,7 +41,10 @@ export async function uploadPODocument(
     const response = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       body: formData,
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     onStageChange?.('parsing');
     const data = await response.json().catch(() => null);
@@ -49,15 +55,33 @@ export async function uploadPODocument(
       return transformN8nResponse(data);
     }
 
-    // No JSON body — generic HTTP error
-    if (!response.ok) {
-      throw new Error(`Server error: ${response.status}`);
+    // No JSON body — return clean error
+    return {
+      status: 'error',
+      message: response.ok
+        ? 'Server returned an empty response'
+        : `Server error (${response.status}). Please try again.`,
+    };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error('Error uploading PO:', error);
+
+    // Timeout
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return {
+        status: 'error',
+        message: 'Request timed out. The server may be busy — please try again.',
+      };
     }
 
-    onStageChange?.('complete');
-    return transformN8nResponse(data);
-  } catch (error) {
-    console.error('Error uploading PO:', error);
+    // Network errors (offline, DNS, CORS)
+    if (error instanceof TypeError) {
+      return {
+        status: 'error',
+        message: 'Unable to reach the processing server. Check your connection and try again.',
+      };
+    }
+
     return {
       status: 'error',
       message: error instanceof Error ? error.message : 'Failed to process PO',
