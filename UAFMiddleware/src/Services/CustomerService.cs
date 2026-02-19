@@ -23,18 +23,20 @@ public class CustomerService : ICustomerService
         SessionWrapper? session = null;
         dynamic? customerSvc = null;
         var customers = new List<CustomerDto>();
-        
+        bool sessionCorrupted = false;
+
         try
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
-            _logger.LogInformation("Searching customers: Name={Name}, City={City}, State={State}", 
+            _logger.LogInformation("Searching customers: Name={Name}, City={City}, State={State}",
                 request.Name, request.City, request.State);
 
             // Create AR_Customer_svc object for reading customer data
             customerSvc = session.ProvideXScript.NewObject("AR_Customer_svc", session.Session);
-            
+
             if (customerSvc == null)
             {
+                sessionCorrupted = true;
                 throw new InvalidOperationException("Failed to create AR_Customer_svc object");
             }
 
@@ -166,6 +168,12 @@ public class CustomerService : ICustomerService
                 SearchCriteria = BuildSearchCriteria(request)
             };
         }
+        catch (COMException comEx)
+        {
+            _logger.LogError(comEx, "COM error searching customers. HRESULT: 0x{HResult:X}", comEx.HResult);
+            sessionCorrupted = true;
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching customers");
@@ -177,10 +185,18 @@ public class CustomerService : ICustomerService
             {
                 Marshal.ReleaseComObject(customerSvc);
             }
-            
+
             if (session != null)
             {
-                _sessionManager.ReleaseSession(session);
+                if (sessionCorrupted)
+                {
+                    _logger.LogWarning("Invalidating corrupted session {SessionId} after search error", session.SessionId);
+                    _sessionManager.InvalidateSession(session);
+                }
+                else
+                {
+                    _sessionManager.ReleaseSession(session);
+                }
             }
         }
     }
@@ -209,16 +225,18 @@ public class CustomerService : ICustomerService
     {
         SessionWrapper? session = null;
         dynamic? customerSvc = null;
-        
+        bool sessionCorrupted = false;
+
         try
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
             _logger.LogInformation("Getting customer: {Division}-{CustomerNo}", arDivisionNo, customerNo);
 
             customerSvc = session.ProvideXScript.NewObject("AR_Customer_svc", session.Session);
-            
+
             if (customerSvc == null)
             {
+                sessionCorrupted = true;
                 throw new InvalidOperationException("Failed to create AR_Customer_svc object");
             }
 
@@ -290,6 +308,13 @@ public class CustomerService : ICustomerService
 
             return customer;
         }
+        catch (COMException comEx)
+        {
+            _logger.LogError(comEx, "COM error getting customer {Division}-{CustomerNo}. HRESULT: 0x{HResult:X}",
+                arDivisionNo, customerNo, comEx.HResult);
+            sessionCorrupted = true;
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting customer {Division}-{CustomerNo}", arDivisionNo, customerNo);
@@ -301,10 +326,18 @@ public class CustomerService : ICustomerService
             {
                 Marshal.ReleaseComObject(customerSvc);
             }
-            
+
             if (session != null)
             {
-                _sessionManager.ReleaseSession(session);
+                if (sessionCorrupted)
+                {
+                    _logger.LogWarning("Invalidating corrupted session {SessionId} after customer get error", session.SessionId);
+                    _sessionManager.InvalidateSession(session);
+                }
+                else
+                {
+                    _sessionManager.ReleaseSession(session);
+                }
             }
         }
     }
