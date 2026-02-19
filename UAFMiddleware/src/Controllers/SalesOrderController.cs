@@ -106,7 +106,7 @@ public class SalesOrderController : ControllerBase
             {
                 Success = false,
                 ErrorCode = "INTERNAL_ERROR",
-                ErrorMessage = "An unexpected error occurred"
+                ErrorMessage = $"Sales order creation failed: {ex.Message}"
             });
         }
     }

@@ -88,7 +88,7 @@ public class CustomerController : ControllerBase
             _logger.LogError(ex, "Error searching customers");
             return StatusCode(500, new ErrorResponse
             {
-                Error = "An unexpected error occurred",
+                Error = $"Customer search failed: {ex.Message}",
                 ErrorCode = "INTERNAL_ERROR"
             });
         }
@@ -134,7 +134,7 @@ public class CustomerController : ControllerBase
             _logger.LogError(ex, "Error getting customer {CustomerNumber}", customerNumber);
             return StatusCode(500, new ErrorResponse
             {
-                Error = "An unexpected error occurred",
+                Error = $"Failed to get customer {customerNumber}: {ex.Message}",
                 ErrorCode = "INTERNAL_ERROR"
             });
         }
@@ -178,7 +178,7 @@ public class CustomerController : ControllerBase
             _logger.LogError(ex, "Error validating ship-to for {CustomerNumber}", customerNumber);
             return StatusCode(500, new ErrorResponse
             {
-                Error = "An unexpected error occurred",
+                Error = $"Ship-to validation failed for {customerNumber}: {ex.Message}",
                 ErrorCode = "INTERNAL_ERROR"
             });
         }
@@ -234,7 +234,7 @@ public class CustomerController : ControllerBase
             _logger.LogError(ex, "Error resolving customer");
             return StatusCode(500, new ErrorResponse
             {
-                Error = "An unexpected error occurred",
+                Error = $"Customer resolution failed: {ex.Message}",
                 ErrorCode = "INTERNAL_ERROR"
             });
         }
