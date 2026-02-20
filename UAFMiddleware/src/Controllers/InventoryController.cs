@@ -68,7 +68,7 @@ public class InventoryController : ControllerBase
             _logger.LogError(ex, "Error validating item codes");
             return StatusCode(500, new ErrorResponse
             {
-                Error = $"Item code validation failed: {ex.Message}",
+                Error = "Item code validation failed",
                 ErrorCode = "INTERNAL_ERROR"
             });
         }
@@ -119,7 +119,7 @@ public class InventoryController : ControllerBase
             _logger.LogError(ex, "Error checking item {ItemCode}", itemCode);
             return StatusCode(500, new ErrorResponse
             {
-                Error = $"Item check failed for {itemCode}: {ex.Message}",
+                Error = $"Item check failed for {itemCode}",
                 ErrorCode = "INTERNAL_ERROR"
             });
         }
