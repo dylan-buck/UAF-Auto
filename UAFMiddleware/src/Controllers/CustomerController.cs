@@ -49,11 +49,9 @@ public class CustomerController : ControllerBase
             string.IsNullOrEmpty(state) &&
             string.IsNullOrEmpty(phone))
         {
-            return BadRequest(new ErrorResponse
-            {
-                Error = "At least one search parameter is required",
-                ErrorCode = "MISSING_SEARCH_PARAMS"
-            });
+            return BadRequest(CreateErrorResponse(
+                "At least one search parameter is required",
+                "MISSING_SEARCH_PARAMS"));
         }
 
         try
@@ -77,20 +75,12 @@ public class CustomerController : ControllerBase
         catch (TimeoutException)
         {
             _logger.LogError("Timeout searching customers");
-            return StatusCode(503, new ErrorResponse
-            {
-                Error = "Service is busy, please try again",
-                ErrorCode = "SERVICE_BUSY"
-            });
+            return BusyResponse();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching customers");
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = "Customer search failed",
-                ErrorCode = "INTERNAL_ERROR"
-            });
+            return InternalErrorResponse("Customer search failed");
         }
     }
 
@@ -111,11 +101,9 @@ public class CustomerController : ControllerBase
             
             if (customer == null)
             {
-                return NotFound(new ErrorResponse
-                {
-                    Error = $"Customer '{customerNumber}' not found",
-                    ErrorCode = "CUSTOMER_NOT_FOUND"
-                });
+                return NotFound(CreateErrorResponse(
+                    $"Customer '{customerNumber}' not found",
+                    "CUSTOMER_NOT_FOUND"));
             }
 
             return Ok(customer);
@@ -123,20 +111,12 @@ public class CustomerController : ControllerBase
         catch (TimeoutException)
         {
             _logger.LogError("Timeout getting customer");
-            return StatusCode(503, new ErrorResponse
-            {
-                Error = "Service is busy, please try again",
-                ErrorCode = "SERVICE_BUSY"
-            });
+            return BusyResponse();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting customer {CustomerNumber}", customerNumber);
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = $"Failed to get customer {customerNumber}",
-                ErrorCode = "INTERNAL_ERROR"
-            });
+            return InternalErrorResponse($"Failed to get customer {customerNumber}");
         }
     }
 
@@ -167,20 +147,12 @@ public class CustomerController : ControllerBase
         catch (TimeoutException)
         {
             _logger.LogError("Timeout validating ship-to");
-            return StatusCode(503, new ErrorResponse
-            {
-                Error = "Service is busy, please try again",
-                ErrorCode = "SERVICE_BUSY"
-            });
+            return BusyResponse();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error validating ship-to for {CustomerNumber}", customerNumber);
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = $"Ship-to validation failed for {customerNumber}",
-                ErrorCode = "INTERNAL_ERROR"
-            });
+            return InternalErrorResponse($"Ship-to validation failed for {customerNumber}");
         }
     }
 
@@ -201,11 +173,9 @@ public class CustomerController : ControllerBase
 
         if (string.IsNullOrEmpty(request.CustomerName))
         {
-            return BadRequest(new ErrorResponse
-            {
-                Error = "Customer name is required",
-                ErrorCode = "MISSING_CUSTOMER_NAME"
-            });
+            return BadRequest(CreateErrorResponse(
+                "Customer name is required",
+                "MISSING_CUSTOMER_NAME"));
         }
 
         try
@@ -223,20 +193,12 @@ public class CustomerController : ControllerBase
         catch (TimeoutException)
         {
             _logger.LogError("Timeout resolving customer");
-            return StatusCode(503, new ErrorResponse
-            {
-                Error = "Service is busy, please try again",
-                ErrorCode = "SERVICE_BUSY"
-            });
+            return BusyResponse();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resolving customer");
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = "Customer resolution failed",
-                ErrorCode = "INTERNAL_ERROR"
-            });
+            return InternalErrorResponse("Customer resolution failed");
         }
     }
 
@@ -259,5 +221,25 @@ public class CustomerController : ControllerBase
             }
         });
     }
-}
 
+    private ObjectResult BusyResponse()
+    {
+        return StatusCode(503, CreateErrorResponse(
+            "Service is busy, please try again",
+            "SERVICE_BUSY"));
+    }
+
+    private ObjectResult InternalErrorResponse(string message)
+    {
+        return StatusCode(500, CreateErrorResponse(message, "INTERNAL_ERROR"));
+    }
+
+    private static ErrorResponse CreateErrorResponse(string error, string errorCode)
+    {
+        return new ErrorResponse
+        {
+            Error = error,
+            ErrorCode = errorCode
+        };
+    }
+}

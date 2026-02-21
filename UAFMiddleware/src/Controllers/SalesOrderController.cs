@@ -34,21 +34,7 @@ public class SalesOrderController : ControllerBase
         // Validate request
         if (!ModelState.IsValid)
         {
-            var errors = ModelState
-                .Where(x => x.Value?.Errors.Count > 0)
-                .SelectMany(x => x.Value!.Errors.Select(e => new ValidationError
-                {
-                    Field = x.Key,
-                    Message = e.ErrorMessage
-                }))
-                .ToList();
-
-            return BadRequest(new ErrorResponse
-            {
-                Error = "Validation failed",
-                ErrorCode = "VALIDATION_ERROR",
-                ValidationErrors = errors
-            });
+            return BadRequest(CreateValidationErrorResponse());
         }
 
         try
@@ -77,16 +63,7 @@ public class SalesOrderController : ControllerBase
                 }
 
                 // Determine appropriate status code for other errors
-                var statusCode = result.ErrorCode switch
-                {
-                    "CUSTOMER_NOT_FOUND" => 400,
-                    "ITEM_NOT_FOUND" => 400,
-                    "VALIDATION_ERROR" => 400,
-                    "COM_ERROR" => 502,
-                    _ => 500
-                };
-
-                return StatusCode(statusCode, result);
+                return StatusCode(GetStatusCodeForError(result.ErrorCode), result);
             }
         }
         catch (TimeoutException)
@@ -129,6 +106,36 @@ public class SalesOrderController : ControllerBase
             }
         });
     }
-}
 
+    private ErrorResponse CreateValidationErrorResponse()
+    {
+        var errors = ModelState
+            .Where(x => x.Value?.Errors.Count > 0)
+            .SelectMany(x => x.Value!.Errors.Select(e => new ValidationError
+            {
+                Field = x.Key,
+                Message = e.ErrorMessage
+            }))
+            .ToList();
+
+        return new ErrorResponse
+        {
+            Error = "Validation failed",
+            ErrorCode = "VALIDATION_ERROR",
+            ValidationErrors = errors
+        };
+    }
+
+    private static int GetStatusCodeForError(string? errorCode)
+    {
+        return errorCode switch
+        {
+            "CUSTOMER_NOT_FOUND" => 400,
+            "ITEM_NOT_FOUND" => 400,
+            "VALIDATION_ERROR" => 400,
+            "COM_ERROR" => 502,
+            _ => 500
+        };
+    }
+}
 

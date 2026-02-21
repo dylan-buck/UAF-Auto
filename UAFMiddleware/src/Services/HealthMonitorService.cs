@@ -46,46 +46,11 @@ public class HealthMonitorService : BackgroundService
 
                 if (isHealthy)
                 {
-                    _logger.LogInformation(
-                        "Health check passed. Uptime: {Uptime:dd\\.hh\\:mm\\:ss}, Available sessions: {Available}, Active sessions: {Active}",
-                        uptime,
-                        _sessionManager.AvailableSessions,
-                        _sessionManager.ActiveSessions);
+                    LogHealthyStatus(uptime);
                 }
                 else
                 {
-                    _logger.LogWarning(
-                        "Health check FAILED (consecutive: {Failures}). Uptime: {Uptime:dd\\.hh\\:mm\\:ss}",
-                        failures, uptime);
-
-                    // Tier 1: Reset session pool
-                    if (failures >= PoolResetThreshold && failures < SelfRestartThreshold)
-                    {
-                        _logger.LogWarning("Consecutive failures ({Failures}) reached pool reset threshold — resetting session pool", failures);
-                        try
-                        {
-                            _sessionManager.ResetPool();
-                            _logger.LogInformation("Session pool reset triggered. Waiting for next health check to verify recovery.");
-                        }
-                        catch (Exception resetEx)
-                        {
-                            _logger.LogError(resetEx, "Failed to reset session pool");
-                        }
-                    }
-
-                    // Tier 2: Graceful self-restart (Windows service recovery will restart the process)
-                    if (failures >= SelfRestartThreshold)
-                    {
-                        _logger.LogCritical(
-                            "Consecutive failures ({Failures}) reached self-restart threshold — shutting down for Windows service recovery to restart",
-                            failures);
-
-                        // Give logs time to flush
-                        await Task.Delay(TimeSpan.FromSeconds(2), CancellationToken.None);
-
-                        // Exit with non-zero code so Windows service recovery kicks in
-                        Environment.Exit(1);
-                    }
+                    await HandleUnhealthyStatusAsync(failures, uptime);
                 }
             }
             catch (Exception ex)
@@ -97,5 +62,50 @@ public class HealthMonitorService : BackgroundService
         }
 
         _logger.LogInformation("Health monitor service stopped");
+    }
+
+    private void LogHealthyStatus(TimeSpan uptime)
+    {
+        _logger.LogInformation(
+            "Health check passed. Uptime: {Uptime:dd\\.hh\\:mm\\:ss}, Available sessions: {Available}, Active sessions: {Active}",
+            uptime,
+            _sessionManager.AvailableSessions,
+            _sessionManager.ActiveSessions);
+    }
+
+    private async Task HandleUnhealthyStatusAsync(int failures, TimeSpan uptime)
+    {
+        _logger.LogWarning(
+            "Health check FAILED (consecutive: {Failures}). Uptime: {Uptime:dd\\.hh\\:mm\\:ss}",
+            failures, uptime);
+
+        // Tier 1: Reset session pool
+        if (failures >= PoolResetThreshold && failures < SelfRestartThreshold)
+        {
+            _logger.LogWarning("Consecutive failures ({Failures}) reached pool reset threshold — resetting session pool", failures);
+            try
+            {
+                _sessionManager.ResetPool();
+                _logger.LogInformation("Session pool reset triggered. Waiting for next health check to verify recovery.");
+            }
+            catch (Exception resetEx)
+            {
+                _logger.LogError(resetEx, "Failed to reset session pool");
+            }
+        }
+
+        // Tier 2: Graceful self-restart (Windows service recovery will restart the process)
+        if (failures >= SelfRestartThreshold)
+        {
+            _logger.LogCritical(
+                "Consecutive failures ({Failures}) reached self-restart threshold — shutting down for Windows service recovery to restart",
+                failures);
+
+            // Give logs time to flush
+            await Task.Delay(TimeSpan.FromSeconds(2), CancellationToken.None);
+
+            // Exit with non-zero code so Windows service recovery kicks in
+            Environment.Exit(1);
+        }
     }
 }

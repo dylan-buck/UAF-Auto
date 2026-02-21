@@ -31,11 +31,9 @@ public class InventoryController : ControllerBase
     {
         if (request.ItemCodes == null || request.ItemCodes.Count == 0)
         {
-            return BadRequest(new ErrorResponse
-            {
-                Error = "At least one item code is required",
-                ErrorCode = "MISSING_ITEM_CODES"
-            });
+            return BadRequest(CreateErrorResponse(
+                "At least one item code is required",
+                "MISSING_ITEM_CODES"));
         }
 
         _logger.LogInformation("Validating {Count} item codes", request.ItemCodes.Count);
@@ -57,20 +55,12 @@ public class InventoryController : ControllerBase
         catch (TimeoutException)
         {
             _logger.LogError("Timeout validating item codes");
-            return StatusCode(503, new ErrorResponse
-            {
-                Error = "Service is busy, please try again",
-                ErrorCode = "SERVICE_BUSY"
-            });
+            return BusyResponse();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error validating item codes");
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = "Item code validation failed",
-                ErrorCode = "INTERNAL_ERROR"
-            });
+            return InternalErrorResponse("Item code validation failed");
         }
     }
 
@@ -85,11 +75,9 @@ public class InventoryController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(itemCode))
         {
-            return BadRequest(new ErrorResponse
-            {
-                Error = "Item code is required",
-                ErrorCode = "MISSING_ITEM_CODE"
-            });
+            return BadRequest(CreateErrorResponse(
+                "Item code is required",
+                "MISSING_ITEM_CODE"));
         }
 
         _logger.LogInformation("Checking if item '{ItemCode}' exists", itemCode);
@@ -108,20 +96,12 @@ public class InventoryController : ControllerBase
         catch (TimeoutException)
         {
             _logger.LogError("Timeout checking item");
-            return StatusCode(503, new ErrorResponse
-            {
-                Error = "Service is busy, please try again",
-                ErrorCode = "SERVICE_BUSY"
-            });
+            return BusyResponse();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error checking item {ItemCode}", itemCode);
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = $"Item check failed for {itemCode}",
-                ErrorCode = "INTERNAL_ERROR"
-            });
+            return InternalErrorResponse($"Item check failed for {itemCode}");
         }
     }
 
@@ -141,6 +121,27 @@ public class InventoryController : ControllerBase
                 check = "GET /api/v1/inventory/check/{itemCode}"
             }
         });
+    }
+
+    private ObjectResult BusyResponse()
+    {
+        return StatusCode(503, CreateErrorResponse(
+            "Service is busy, please try again",
+            "SERVICE_BUSY"));
+    }
+
+    private ObjectResult InternalErrorResponse(string message)
+    {
+        return StatusCode(500, CreateErrorResponse(message, "INTERNAL_ERROR"));
+    }
+
+    private static ErrorResponse CreateErrorResponse(string error, string errorCode)
+    {
+        return new ErrorResponse
+        {
+            Error = error,
+            ErrorCode = errorCode
+        };
     }
 }
 

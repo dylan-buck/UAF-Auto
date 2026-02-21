@@ -85,37 +85,22 @@ public class SalesOrderService : ISalesOrderService
             // Set the key to initialize the new order using nSetKeyValue + nSetKey() pattern (matches working VBScript)
             _logger.LogInformation("Setting key using nSetKeyValue + nSetKey() pattern...");
             object setKeyValueResultObj = salesOrder.nSetKeyValue("SalesOrderNo$", nextOrderNo);
-            int setKeyValueResult = setKeyValueResultObj != null ? Convert.ToInt32(setKeyValueResultObj) : 0;
+            int setKeyValueResult = ConvertComResult(setKeyValueResultObj);
             _logger.LogInformation("nSetKeyValue('SalesOrderNo$', '{OrderNo}') returned: {Result}", nextOrderNo, setKeyValueResult);
             
             object setKeyResultObj = salesOrder.nSetKey();
-            int setKeyResult = setKeyResultObj != null ? Convert.ToInt32(setKeyResultObj) : 0;
+            int setKeyResult = ConvertComResult(setKeyResultObj);
             _logger.LogInformation("nSetKey() returned: {Result}", setKeyResult);
             
             if (setKeyResult == 0)
             {
-                string setKeyError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                string setKeyError = TryGetLastError(salesOrder);
                 _logger.LogError("Failed to set key for order {OrderNo}: {Error}", nextOrderNo, setKeyError);
                 throw new InvalidOperationException($"Failed to initialize sales order {nextOrderNo}: {setKeyError}");
             }
 
             // Set header information
-            // Parse customer number - might be in format "00-CUSTNO" or just "CUSTNO"
-            // Sage 100 customer numbers are max 7 characters, so if we see "XX-XXXXXX" format, split it
-            string divisionNo = "00";
-            string customerNo = request.CustomerNumber;
-            
-            // Check if customer number is in "XX-XXXXXX" format (division-customerno)
-            if (customerNo.Length > 3 && customerNo[2] == '-')
-            {
-                divisionNo = customerNo.Substring(0, 2);
-                customerNo = customerNo.Substring(3);
-                _logger.LogInformation("Parsed customer: Division={Division}, CustomerNo={CustomerNo}", divisionNo, customerNo);
-            }
-            else if (!string.IsNullOrEmpty(request.ARDivisionNo))
-            {
-                divisionNo = request.ARDivisionNo;
-            }
+            var (divisionNo, customerNo) = ParseCustomerIdentity(request);
             
             int divResult = salesOrder.nSetValue("ARDivisionNo$", divisionNo);
             _logger.LogInformation("Set ARDivisionNo$ = {Division}, result: {Result}", divisionNo, divResult);
@@ -124,7 +109,7 @@ public class SalesOrderService : ISalesOrderService
             _logger.LogInformation("Set CustomerNo$ = {CustomerNo}, result: {Result}", customerNo, custResult);
             if (custResult == 0)
             {
-                string custError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                string custError = TryGetLastError(salesOrder);
                 _logger.LogWarning("CustomerNo$ set warning: {Error}", custError);
             }
             
@@ -152,13 +137,13 @@ public class SalesOrderService : ISalesOrderService
             if (!string.IsNullOrEmpty(request.ShipToCode))
             {
                 object shipToResult = salesOrder.nSetValue("ShipToCode$", request.ShipToCode);
-                int shipToSetResult = shipToResult != null ? Convert.ToInt32(shipToResult) : 0;
+                int shipToSetResult = ConvertComResult(shipToResult);
                 _logger.LogInformation("Set ShipToCode$ = {ShipToCode}, result: {Result}",
                     request.ShipToCode, shipToSetResult);
 
                 if (shipToSetResult == 0)
                 {
-                    string shipToError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                    string shipToError = TryGetLastError(salesOrder);
                     _logger.LogWarning("ShipToCode$ set warning: {Error}", shipToError);
                 }
             }
@@ -167,7 +152,7 @@ public class SalesOrderService : ISalesOrderService
             if (!string.IsNullOrEmpty(request.WarehouseCode))
             {
                 object whseResult = salesOrder.nSetValue("WarehouseCode$", request.WarehouseCode);
-                int whseSetResult = whseResult != null ? Convert.ToInt32(whseResult) : 0;
+                int whseSetResult = ConvertComResult(whseResult);
                 _logger.LogInformation("Set WarehouseCode$ = {WarehouseCode}, result: {Result}",
                     request.WarehouseCode, whseSetResult);
             }
@@ -176,7 +161,7 @@ public class SalesOrderService : ISalesOrderService
             if (!string.IsNullOrEmpty(request.ShipVia))
             {
                 object shipViaResult = salesOrder.nSetValue("ShipVia$", request.ShipVia);
-                int shipViaSetResult = shipViaResult != null ? Convert.ToInt32(shipViaResult) : 0;
+                int shipViaSetResult = ConvertComResult(shipViaResult);
                 _logger.LogInformation("Set ShipVia$ = {ShipVia}, result: {Result}",
                     request.ShipVia, shipViaSetResult);
             }
@@ -201,12 +186,12 @@ public class SalesOrderService : ISalesOrderService
 
                 // Add new line to the lines object
                 object addLineResultObj = lines.nAddLine();
-                int addLineRet = addLineResultObj != null ? Convert.ToInt32(addLineResultObj) : 0;
+                int addLineRet = ConvertComResult(addLineResultObj);
                 _logger.LogInformation("oLines.nAddLine returned: {Result}", addLineRet);
                 
                 if (addLineRet == 0)
                 {
-                    string lineError = lines.sLastErrorMsg ?? "Unknown error";
+                    string lineError = TryGetLastError(lines);
                     _logger.LogWarning("nAddLine warning: {Error}", lineError);
                 }
 
@@ -242,7 +227,7 @@ public class SalesOrderService : ISalesOrderService
                 if (itemResult == 0)
                 {
                     string itemError = "";
-                    try { itemError = lines.sLastErrorMsg ?? ""; } catch { }
+                    itemError = TryGetLastError(lines, "");
                     _logger.LogError("ItemCode$ set FAILED. Error: '{Error}'", itemError);
 
                     // Try to get more info about why it failed
@@ -251,11 +236,11 @@ public class SalesOrderService : ISalesOrderService
                         // Check if item exists via CI_Item lookup
                         dynamic itemObj = session.ProvideXScript.NewObject("CI_Item_bus", session.Session);
                         object findResult = itemObj.nFind(transformedItemCode);
-                        int found = findResult != null ? Convert.ToInt32(findResult) : 0;
+                        int found = ConvertComResult(findResult);
                         _logger.LogInformation("CI_Item lookup for '{ItemCode}': found={Found}", transformedItemCode, found);
                         if (found == 0)
                         {
-                            string findError = itemObj.sLastErrorMsg ?? "";
+                            string findError = TryGetLastError(itemObj, "");
                             _logger.LogError("Item '{ItemCode}' not found in CI_Item. Error: {Error}", transformedItemCode, findError);
                         }
                         if (Marshal.IsComObject(itemObj)) Marshal.ReleaseComObject(itemObj);
@@ -288,12 +273,12 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogError(comEx, "COM exception setting QuantityOrdered");
                     throw;
                 }
-                int qtyResult = qtyResultObj != null ? Convert.ToInt32(qtyResultObj) : 0;
+                int qtyResult = ConvertComResult(qtyResultObj);
                 _logger.LogInformation("Set QuantityOrdered = {Qty}, result: {Result}", line.Quantity, qtyResult);
                 if (qtyResult == 0)
                 {
                     string qtyError = "";
-                    try { qtyError = lines.sLastErrorMsg ?? ""; } catch { }
+                    qtyError = TryGetLastError(lines, "");
                     _logger.LogWarning("QuantityOrdered set warning: {Error}", qtyError);
                 }
 
@@ -301,11 +286,11 @@ public class SalesOrderService : ISalesOrderService
                 if (!string.IsNullOrEmpty(line.WarehouseCode))
                 {
                     object whseResultObj = lines.nSetValue("WarehouseCode$", line.WarehouseCode);
-                    int whseResult = whseResultObj != null ? Convert.ToInt32(whseResultObj) : 0;
+                    int whseResult = ConvertComResult(whseResultObj);
                     _logger.LogInformation("Set WarehouseCode$ = {Warehouse}, result: {Result}", line.WarehouseCode, whseResult);
                     if (whseResult == 0)
                     {
-                        string whseError = lines.sLastErrorMsg ?? "Unknown error";
+                        string whseError = TryGetLastError(lines);
                         _logger.LogWarning("WarehouseCode$ set warning: {Error}", whseError);
                     }
                 }
@@ -314,7 +299,7 @@ public class SalesOrderService : ISalesOrderService
                 if (line.UnitPrice.HasValue)
                 {
                     object priceResultObj = lines.nSetValue("UnitPrice", Convert.ToDouble(line.UnitPrice.Value));
-                    int priceResult = priceResultObj != null ? Convert.ToInt32(priceResultObj) : 0;
+                    int priceResult = ConvertComResult(priceResultObj);
                     _logger.LogInformation("Set UnitPrice = {Price}, result: {Result}", line.UnitPrice.Value, priceResult);
                 }
                 
@@ -326,11 +311,11 @@ public class SalesOrderService : ISalesOrderService
 
                 // Write the line
                 object lineWriteResultObj = lines.nWrite();
-                int lineWriteResult = lineWriteResultObj != null ? Convert.ToInt32(lineWriteResultObj) : 0;
+                int lineWriteResult = ConvertComResult(lineWriteResultObj);
                 _logger.LogInformation("oLines.nWrite returned: {Result}", lineWriteResult);
                 if (lineWriteResult == 0)
                 {
-                    string lineWriteError = lines.sLastErrorMsg ?? "Unknown error";
+                    string lineWriteError = TryGetLastError(lines);
                     _logger.LogWarning("Line write warning: {Error}", lineWriteError);
                 }
 
@@ -340,7 +325,7 @@ public class SalesOrderService : ISalesOrderService
             // Write the order (final commit)
             _logger.LogInformation("Writing sales order to Sage 100...");
             object orderWriteResultObj = salesOrder.nWrite();
-            int orderWriteResult = orderWriteResultObj != null ? Convert.ToInt32(orderWriteResultObj) : 0;
+            int orderWriteResult = ConvertComResult(orderWriteResultObj);
             _logger.LogInformation("salesOrder.nWrite() returned: {Result}", orderWriteResult);
             
             if (orderWriteResult == 1)
@@ -372,7 +357,7 @@ public class SalesOrderService : ISalesOrderService
             }
             else
             {
-                string orderError = salesOrder.sLastErrorMsg ?? "Unknown error";
+                string orderError = TryGetLastError(salesOrder);
                 _logger.LogError("Failed to write sales order: {Error}", orderError);
                 return new SalesOrderResponse
                 {
@@ -468,7 +453,7 @@ public class SalesOrderService : ISalesOrderService
         }
         catch (TargetInvocationException tie) when (tie.InnerException is COMException comEx)
         {
-            string errorMsg = salesOrder.sLastErrorMsg ?? comEx.Message;
+            string errorMsg = TryGetLastError(salesOrder, comEx.Message);
             _logger.LogError(comEx, "COM error in nGetNextSalesOrderNo: {Error}", errorMsg);
             throw new InvalidOperationException($"Failed to get next sales order number: {errorMsg}", comEx);
         }
@@ -524,5 +509,45 @@ public class SalesOrderService : ISalesOrderService
 
         return trimmed;
     }
-}
 
+    private (string DivisionNo, string CustomerNo) ParseCustomerIdentity(SalesOrderRequest request)
+    {
+        // Parse customer number - might be in format "00-CUSTNO" or just "CUSTNO"
+        // Sage 100 customer numbers are max 7 characters, so if we see "XX-XXXXXX" format, split it
+        var divisionNo = "00";
+        var customerNo = request.CustomerNumber;
+
+        if (customerNo.Length > 3 && customerNo[2] == '-')
+        {
+            divisionNo = customerNo.Substring(0, 2);
+            customerNo = customerNo.Substring(3);
+            _logger.LogInformation(
+                "Parsed customer: Division={Division}, CustomerNo={CustomerNo}",
+                divisionNo,
+                customerNo);
+        }
+        else if (!string.IsNullOrEmpty(request.ARDivisionNo))
+        {
+            divisionNo = request.ARDivisionNo;
+        }
+
+        return (divisionNo, customerNo);
+    }
+
+    private static int ConvertComResult(object? result)
+    {
+        return result != null ? Convert.ToInt32(result) : 0;
+    }
+
+    private static string TryGetLastError(dynamic obj, string fallback = "Unknown error")
+    {
+        try
+        {
+            return obj.sLastErrorMsg ?? fallback;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+}

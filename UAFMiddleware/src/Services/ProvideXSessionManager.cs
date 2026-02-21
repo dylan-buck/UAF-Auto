@@ -9,6 +9,7 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
 {
     private readonly SageConfiguration _config;
     private readonly ILogger<ProvideXSessionManager> _logger;
+    private readonly object _initializationLock = new();
     private readonly ConcurrentBag<SessionWrapper> _availableSessions;
     private readonly ConcurrentDictionary<string, SessionWrapper> _activeSessions;
     private SemaphoreSlim _semaphore;
@@ -41,7 +42,7 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
         }
 
         _logger.LogDebug("Acquiring initialization lock...");
-        lock (this)
+        lock (_initializationLock)
         {
             if (_initialized)
             {
@@ -128,13 +129,12 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
                 throw;
             }
             
-            int userRet = userRetObj != null ? Convert.ToInt32(userRetObj) : 0;
+            int userRet = ConvertComResult(userRetObj);
             _logger.LogInformation("nSetUser returned: {Result}", userRet);
             
             if (userRet == 0)
             {
-                string error = "";
-                try { error = session.sLastErrorMsg ?? "Unknown error"; } catch { error = "Could not get error message"; }
+                string error = TryGetLastError(session, "Could not get error message");
                 throw new InvalidOperationException($"Failed to authenticate user '{_config.Username}': {error}");
             }
             
@@ -151,13 +151,12 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
                 throw;
             }
             
-            int companyRet = companyRetObj != null ? Convert.ToInt32(companyRetObj) : 0;
+            int companyRet = ConvertComResult(companyRetObj);
             _logger.LogInformation("nSetCompany returned: {Result}", companyRet);
             
             if (companyRet == 0)
             {
-                string error = "";
-                try { error = session.sLastErrorMsg ?? "Unknown error"; } catch { error = "Could not get error message"; }
+                string error = TryGetLastError(session, "Could not get error message");
                 throw new InvalidOperationException($"Failed to set company '{_config.Company}': {error}");
             }
 
@@ -413,5 +412,21 @@ public class ProvideXSessionManager : IProvideXSessionManager, IDisposable
             _logger.LogWarning(ex, "Error disposing session {SessionId}", session.SessionId);
         }
     }
-}
 
+    private static int ConvertComResult(object? result)
+    {
+        return result != null ? Convert.ToInt32(result) : 0;
+    }
+
+    private static string TryGetLastError(dynamic sessionOrObject, string fallback = "Unknown error")
+    {
+        try
+        {
+            return sessionOrObject.sLastErrorMsg ?? fallback;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+}

@@ -720,8 +720,8 @@ public class CustomerService : ICustomerService
         if (!string.IsNullOrEmpty(request.ZipCode))
         {
             totalFields++;
-            var reqZip = request.ZipCode.Split('-')[0];
-            var shipZip = shipTo.ZipCode?.Split('-')[0] ?? "";
+            var reqZip = GetZip5(request.ZipCode);
+            var shipZip = GetZip5(shipTo.ZipCode);
             if (reqZip == shipZip)
                 matchedFields++;
             else
@@ -1151,8 +1151,8 @@ public class CustomerService : ICustomerService
         if (!string.IsNullOrEmpty(reqZip))
         {
             total++;
-            var reqZip5 = reqZip.Split('-')[0];
-            var zip5 = zip?.Split('-')[0] ?? "";
+            var reqZip5 = GetZip5(reqZip);
+            var zip5 = GetZip5(zip);
             if (reqZip5 == zip5)
                 matched++;
         }
@@ -1221,5 +1221,14 @@ public class CustomerService : ICustomerService
             .Replace("  ", " ")
             .Trim();
     }
-}
 
+    private static string GetZip5(string? zipCode)
+    {
+        if (string.IsNullOrWhiteSpace(zipCode))
+        {
+            return "";
+        }
+
+        return zipCode.Split('-')[0];
+    }
+}

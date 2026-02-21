@@ -83,35 +83,7 @@ try
         app.UseSwaggerUI();
     }
 
-    // API Key authentication middleware
-    app.Use(async (context, next) =>
-    {
-        // Skip auth for health endpoints
-        if (context.Request.Path.StartsWithSegments("/health"))
-        {
-            await next();
-            return;
-        }
-
-        var apiConfig = context.RequestServices.GetRequiredService<IConfiguration>()
-            .GetSection("Api").Get<ApiConfiguration>();
-        
-        if (string.IsNullOrEmpty(apiConfig?.ApiKey))
-        {
-            await next();
-            return;
-        }
-
-        if (!context.Request.Headers.TryGetValue("X-API-Key", out var providedKey) ||
-            providedKey != apiConfig.ApiKey)
-        {
-            context.Response.StatusCode = 401;
-            await context.Response.WriteAsJsonAsync(new { error = "Invalid or missing API key" });
-            return;
-        }
-
-        await next();
-    });
+    app.Use(ApiKeyAuthenticationMiddleware);
 
     app.MapControllers();
 
@@ -130,3 +102,31 @@ finally
     Log.CloseAndFlush();
 }
 
+static async Task ApiKeyAuthenticationMiddleware(HttpContext context, Func<Task> next)
+{
+    // Skip auth for health endpoints
+    if (context.Request.Path.StartsWithSegments("/health"))
+    {
+        await next();
+        return;
+    }
+
+    var apiConfig = context.RequestServices.GetRequiredService<IConfiguration>()
+        .GetSection("Api").Get<ApiConfiguration>();
+
+    if (string.IsNullOrEmpty(apiConfig?.ApiKey))
+    {
+        await next();
+        return;
+    }
+
+    if (!context.Request.Headers.TryGetValue("X-API-Key", out var providedKey) ||
+        providedKey != apiConfig.ApiKey)
+    {
+        context.Response.StatusCode = 401;
+        await context.Response.WriteAsJsonAsync(new { error = "Invalid or missing API key" });
+        return;
+    }
+
+    await next();
+}
