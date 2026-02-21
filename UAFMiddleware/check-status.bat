@@ -16,6 +16,22 @@ if %errorLevel% neq 0 (
 )
 
 echo.
+echo Cloudflared Status:
+sc query Cloudflared 2>nul | findstr "STATE" >nul
+if %errorLevel% equ 0 (
+    sc query Cloudflared 2>nul | findstr "STATE"
+) else (
+    sc query cloudflared 2>nul | findstr "STATE"
+    if %errorLevel% neq 0 (
+        echo   Cloudflared service is NOT installed
+    )
+)
+
+echo.
+echo Startup Task Status (UAF-VerifyServices):
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $t = Get-ScheduledTask -TaskName 'UAF-VerifyServices' -ErrorAction Stop; $i = Get-ScheduledTaskInfo -TaskName 'UAF-VerifyServices'; Write-Host ('  State: ' + $t.State + ', LastRun: ' + $i.LastRunTime + ', Result: ' + $i.LastTaskResult) } catch { Write-Host '  Task is NOT registered' }"
+
+echo.
 echo Testing API Health Endpoint...
 echo.
 
@@ -26,7 +42,6 @@ echo.
 echo ============================================
 echo.
 pause
-
 
 
 

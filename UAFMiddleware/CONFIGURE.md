@@ -1,13 +1,28 @@
 # UAF Middleware Configuration
 
-## Setting Credentials
+## Configuration Sources (priority)
+1. Environment variables
+2. `appsettings.Local.json`
+3. `appsettings.json` (template defaults)
 
-The middleware reads configuration from **environment variables** or a local settings file. 
-**Never commit credentials to Git!**
+Do not store real credentials in `appsettings.json`.
 
-### Option 1: Environment Variables (Recommended for Production)
+## Recommended Operator Flow
+Use wrapper commands instead of editing files manually:
 
-Set these environment variables on the workstation:
+```cmd
+uaf-set-company.cmd -Profile TST
+uaf-set-company.cmd -Profile UAF
+uaf-set-credentials.cmd
+```
+
+These commands can:
+- update Sage `Company` (`TST` or `UAF`)
+- update Sage username/password
+- optionally persist machine-level environment variables
+- restart middleware and run readiness checks
+
+## Environment Variables
 
 ```cmd
 setx Sage__Username "your_sage_username"
@@ -16,15 +31,8 @@ setx Sage__Company "TST"
 setx Api__ApiKey "your_secret_api_key"
 ```
 
-Or for the current session only:
-```cmd
-set Sage__Username=your_sage_username
-set Sage__Password=your_sage_password
-```
-
-### Option 2: Local Settings File
-
-Create a file called `appsettings.Local.json` in the same folder as the executable:
+## Local Settings File
+Create `appsettings.Local.json` next to `UAFMiddleware.exe`:
 
 ```json
 {
@@ -39,34 +47,17 @@ Create a file called `appsettings.Local.json` in the same folder as the executab
 }
 ```
 
-This file is in `.gitignore` and won't be committed.
+## Cloudflared Configuration
+- Runtime config path on host: `C:\UAF-Auto\.cloudflared\config.yml`
+- Template included in package: `cloudflared\config.template.yml`
 
-### Option 3: Edit appsettings.json After Download
+## Validation Commands
 
-After downloading/building, edit `appsettings.json` directly with your credentials.
-Just don't commit it back to Git!
-
-## Configuration Reference
-
-| Setting | Environment Variable | Description |
-|---------|---------------------|-------------|
-| `Sage.Username` | `Sage__Username` | Sage 100 username |
-| `Sage.Password` | `Sage__Password` | Sage 100 password |
-| `Sage.Company` | `Sage__Company` | Company code (TST or UAF) |
-| `Sage.ServerPath` | `Sage__ServerPath` | UNC path to Sage 100 |
-| `Api.Port` | `Api__Port` | API port (default: 3000) |
-| `Api.ApiKey` | `Api__ApiKey` | Optional API key for security |
-
-## Testing Configuration
-
-After configuring, test with:
-```
-http://localhost:3000/health/ready
+```cmd
+uaf-verify.cmd
+check-status.bat
 ```
 
-If Sage 100 connection is successful, you'll see:
-```json
-{"status":"ready","sage100":"connected"}
-```
-
-
+Manual health checks:
+- Local: `http://localhost:3000/health/ready`
+- Tunnel: `https://sage.uaf-automation.uk/health/ready`

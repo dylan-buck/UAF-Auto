@@ -36,8 +36,13 @@ timeout /t 3 /nobreak >nul
 :: Delete the service
 echo Removing service...
 sc delete %SERVICE_NAME%
+set "DELETE_RESULT=%errorLevel%"
 
-if %errorLevel% equ 0 (
+:: Remove startup verification task if present
+echo Removing startup verification task...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Unregister-ScheduledTask -TaskName 'UAF-VerifyServices' -Confirm:$false -ErrorAction SilentlyContinue" >nul 2>&1
+
+if %DELETE_RESULT% equ 0 (
     echo.
     echo ============================================
     echo SUCCESS! Service has been uninstalled.
@@ -53,8 +58,6 @@ if %errorLevel% equ 0 (
 )
 
 pause
-
-
 
 
 

@@ -44,9 +44,21 @@ copy "%SCRIPT_DIR%start-service.bat" "%PACKAGE_DIR%\" >nul 2>&1
 copy "%SCRIPT_DIR%stop-service.bat" "%PACKAGE_DIR%\" >nul 2>&1
 copy "%SCRIPT_DIR%view-logs.bat" "%PACKAGE_DIR%\" >nul 2>&1
 copy "%SCRIPT_DIR%check-status.bat" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%verify-services.ps1" "%PACKAGE_DIR%\" >nul 2>&1
 copy "%SCRIPT_DIR%README.txt" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%CONFIGURE.md" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%DEPLOYMENT-GUIDE.md" "%PACKAGE_DIR%\" >nul 2>&1
 copy "%SCRIPT_DIR%test-api.ps1" "%PACKAGE_DIR%\" >nul 2>&1
 copy "%SCRIPT_DIR%test-order.json" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%run-test.bat" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%uaf-bootstrap.cmd" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%uaf-update.cmd" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%uaf-set-company.cmd" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%uaf-set-credentials.cmd" "%PACKAGE_DIR%\" >nul 2>&1
+copy "%SCRIPT_DIR%uaf-verify.cmd" "%PACKAGE_DIR%\" >nul 2>&1
+xcopy "%SCRIPT_DIR%ops" "%PACKAGE_DIR%\ops\" /E /I /Y /Q >nul 2>&1
+xcopy "%SCRIPT_DIR%cloudflared" "%PACKAGE_DIR%\cloudflared\" /E /I /Y /Q >nul 2>&1
+xcopy "%SCRIPT_DIR%src" "%PACKAGE_DIR%\src\" /E /I /Y /Q >nul 2>&1
 
 echo.
 echo ============================================
@@ -64,7 +76,7 @@ goto :eof
 :nodotnet
 echo.
 echo ERROR: .NET SDK not found!
-echo Install from: https://dotnet.microsoft.com/download/dotnet/8.0
+echo Install from: https://dotnet.microsoft.com/download/dotnet/10.0
 pause
 goto :eof
 

@@ -157,8 +157,8 @@ public class CustomerController : ControllerBase
     }
 
     /// <summary>
-    /// Resolve the correct customer from PO data using intelligent matching.
-    /// Returns the best match with confidence score and recommendation.
+    /// Resolve the best customer/ship-to match from PO data using intelligent scoring.
+    /// Returns matching facts and confidence only; business pass/fail policy belongs in automation.
     /// </summary>
     [HttpPost("resolve")]
     public async Task<ActionResult<CustomerResolutionResponse>> ResolveCustomer(

@@ -16,20 +16,11 @@ This document outlines the API endpoints needed to process incoming Purchase Ord
 | **Quantity per Item** | QuantityOrdered for each line |
 | **Price per Item** | Logged/verified (Sage sets actual pricing) |
 
-## Validation Rules
+## Validation Rules Ownership
 
-### ❌ DO NOT AUTOMATE - Send for Manual Review:
-
-1. **Ship-To Mismatch**: PO ship-to address ≠ Customer's default ship-to in Sage
-2. **Special Instructions**: PO contains memo/notes indicating human verification needed
-
-### ✅ AUTOMATE - Create Sales Order:
-
-If ship-to matches default AND no special instructions:
-- Use ship-to's **default warehouse code**
-- Use ship-to's **default ship via** (freight method)
-- Sage applies customer's **pricing level**
-- Create sales order automatically
+- Middleware returns matching/scoring facts and Sage execution results.
+- Tenant-specific business policy (for example PASS/REJECTED decisions and edge-case transforms) is handled in automation.
+- n8n owns UAF rules such as item-code prefix normalization and final routing decisions.
 
 ## Ingestion Flow
 
@@ -489,23 +480,3 @@ When `validateShipTo: true` and address doesn't match, send webhook:
 | `IM_ItemWarehouse_svc` | Inventory by warehouse |
 | `SO_SalesOrder_bus` | Create/update sales orders |
 | `SY_Company_svc` | Company/warehouse list |
-
----
-
-## Implementation Priority
-
-### Phase 1 - Core APIs (Current)
-- ✅ `POST /api/v1/sales-orders` - Direct order creation with customer number
-- 🔲 `GET /api/v1/customers/search` - Find customer by name/address/phone
-- 🔲 `GET /api/v1/customers/{id}` - Get customer details with default ship-to
-
-### Phase 2 - Validation Logic
-- 🔲 `POST /api/v1/customers/{id}/validate-shipto` - Compare addresses
-- 🔲 Ship-to matching algorithm (fuzzy match for address variations)
-- 🔲 Special instructions detection (keyword scanning in notes)
-
-### Phase 3 - Full PO Processing
-- 🔲 `POST /api/v1/purchase-orders/process` - Complete workflow endpoint
-- 🔲 Webhook integration for manual review notifications
-- 🔲 n8n integration testing
-

@@ -195,20 +195,21 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogWarning("nAddLine warning: {Error}", lineError);
                 }
 
-                // Transform item code (strip ZLP/ZLPSP prefixes)
-                string transformedItemCode = TransformItemCode(line.ItemCode);
-                if (transformedItemCode != line.ItemCode)
+                // Middleware only applies neutral input normalization.
+                // Tenant-specific item transformations are owned by automation.
+                string normalizedItemCode = line.ItemCode?.Trim() ?? string.Empty;
+                if (normalizedItemCode != line.ItemCode)
                 {
-                    _logger.LogInformation("Transformed ItemCode: '{Original}' → '{Transformed}'",
-                        line.ItemCode, transformedItemCode);
+                    _logger.LogInformation("Normalized ItemCode whitespace: '{Original}' -> '{Normalized}'",
+                        line.ItemCode, normalizedItemCode);
                 }
 
                 // IMPORTANT: Set ItemCode$ FIRST - this loads item defaults (pricing, warehouse, etc.)
-                _logger.LogInformation("Setting ItemCode$ = '{ItemCode}'...", transformedItemCode);
+                _logger.LogInformation("Setting ItemCode$ = '{ItemCode}'...", normalizedItemCode);
                 object? itemResultObj;
                 try
                 {
-                    itemResultObj = lines.nSetValue("ItemCode$", transformedItemCode);
+                    itemResultObj = lines.nSetValue("ItemCode$", normalizedItemCode);
                 }
                 catch (COMException comEx)
                 {
@@ -222,7 +223,7 @@ public class SalesOrderService : ISalesOrderService
                 {
                     itemResult = Convert.ToInt32(itemResultObj);
                 }
-                _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", transformedItemCode, itemResult);
+                _logger.LogInformation("Set ItemCode$ = {ItemCode}, result: {Result}", normalizedItemCode, itemResult);
 
                 if (itemResult == 0)
                 {
@@ -235,13 +236,13 @@ public class SalesOrderService : ISalesOrderService
                     {
                         // Check if item exists via CI_Item lookup
                         dynamic itemObj = session.ProvideXScript.NewObject("CI_Item_bus", session.Session);
-                        object findResult = itemObj.nFind(transformedItemCode);
+                        object findResult = itemObj.nFind(normalizedItemCode);
                         int found = ConvertComResult(findResult);
-                        _logger.LogInformation("CI_Item lookup for '{ItemCode}': found={Found}", transformedItemCode, found);
+                        _logger.LogInformation("CI_Item lookup for '{ItemCode}': found={Found}", normalizedItemCode, found);
                         if (found == 0)
                         {
                             string findError = TryGetLastError(itemObj, "");
-                            _logger.LogError("Item '{ItemCode}' not found in CI_Item. Error: {Error}", transformedItemCode, findError);
+                            _logger.LogError("Item '{ItemCode}' not found in CI_Item. Error: {Error}", normalizedItemCode, findError);
                         }
                         if (Marshal.IsComObject(itemObj)) Marshal.ReleaseComObject(itemObj);
                     }
@@ -255,9 +256,9 @@ public class SalesOrderService : ISalesOrderService
                     {
                         Success = false,
                         ErrorCode = "INVALID_ITEM",
-                        ErrorMessage = $"Item '{transformedItemCode}' not found in Sage inventory",
-                        InvalidItems = new List<string> { line.ItemCode },
-                        Message = $"Line {lineNum}: Invalid item code '{line.ItemCode}'"
+                        ErrorMessage = $"Item '{normalizedItemCode}' not found in Sage inventory",
+                        InvalidItems = new List<string> { line.ItemCode ?? normalizedItemCode },
+                        Message = $"Line {lineNum}: Invalid item code '{line.ItemCode ?? normalizedItemCode}'"
                     };
                 }
 
@@ -486,28 +487,6 @@ public class SalesOrderService : ISalesOrderService
 
         if (!string.IsNullOrEmpty(address.Country))
             salesOrder.nSetValue("ShipToCountryCode$", address.Country);
-    }
-
-    private string TransformItemCode(string itemCode)
-    {
-        if (string.IsNullOrWhiteSpace(itemCode))
-            return itemCode;
-
-        var trimmed = itemCode.Trim();
-
-        // ZLPSP prefix (check first - longer prefix)
-        if (trimmed.StartsWith("ZLPSP", StringComparison.OrdinalIgnoreCase))
-        {
-            return trimmed.Substring(5); // Remove "ZLPSP"
-        }
-
-        // ZLP prefix
-        if (trimmed.StartsWith("ZLP", StringComparison.OrdinalIgnoreCase))
-        {
-            return trimmed.Substring(3); // Remove "ZLP"
-        }
-
-        return trimmed;
     }
 
     private (string DivisionNo, string CustomerNo) ParseCustomerIdentity(SalesOrderRequest request)

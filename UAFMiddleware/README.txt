@@ -1,119 +1,102 @@
 ============================================
 UAF SAGE MIDDLEWARE
-Version 1.0
+Version 1.1
 ============================================
 
 WHAT IS THIS?
 -------------
-This Windows Service automatically processes sales orders 
-for Sage 100 via a REST API. It runs invisibly in the 
-background and starts automatically when Windows boots.
+This Windows Service processes Sage 100 sales orders via REST API.
+It runs in the background and starts automatically on Windows boot.
+
+This package now includes operational wrappers and host bootstrap scripts
+for safer updates, reboot recovery checks, and profile management.
 
 
 REQUIREMENTS
 ------------
 - Windows 10/11 or Windows Server 2016+
-- .NET 8.0 Runtime (Desktop) - Download from:
-  https://dotnet.microsoft.com/download/dotnet/8.0
+- .NET 10.0 Runtime (Desktop)
 - Sage 100 workstation components installed
 - Network access to Sage 100 server
+- cloudflared installed for external tunnel access
 
 
-INSTALLATION
-------------
-1. Install .NET 8.0 Runtime if not already installed
-2. Extract all files to: C:\UAF-Middleware\
-3. Edit appsettings.json if needed (credentials, paths)
-4. Right-click "install-service.bat" > Run as administrator
-5. Done! Service is now running.
+INSTALLATION (FIRST TIME)
+-------------------------
+1. Extract all files to: C:\UAF-Middleware\
+2. Edit appsettings.Local.json or run uaf-set-company.cmd
+3. Right-click install-service.bat > Run as administrator
+4. Run uaf-bootstrap.cmd (as administrator) for full host hardening
 
 
-TESTING
--------
-Open a browser to: http://localhost:3000/health
-Should show: {"status":"healthy"...}
+PRIMARY OPERATOR COMMANDS
+-------------------------
+uaf-bootstrap.cmd        - Configure startup verifier + service dependencies
+uaf-update.cmd           - Build, deploy, health-check, rollback on failure
+uaf-set-company.cmd      - Switch profile (TST/UAF) and credentials
+uaf-set-credentials.cmd  - Rotate credentials (keeps current profile unless provided)
+uaf-verify.cmd           - Verify middleware + cloudflared + task + health
+
+These wrappers call PowerShell scripts internally. Admin rights are auto-requested
+for privileged actions.
+uaf-update.cmd requires .NET SDK because it builds from local source.
 
 
-BATCH FILES
------------
-install-service.bat   - Install and start the service (Run as Admin)
-uninstall-service.bat - Remove the service (Run as Admin)
-start-service.bat     - Start the service (Run as Admin)
-stop-service.bat      - Stop the service (Run as Admin)
-view-logs.bat         - Open the logs folder
-check-status.bat      - Check if service is running
+LEGACY BATCH COMMANDS
+---------------------
+install-service.bat      - Install and start the middleware service (Admin)
+uninstall-service.bat    - Remove middleware service (Admin)
+start-service.bat        - Start middleware service (Admin)
+stop-service.bat         - Stop middleware service (Admin)
+check-status.bat         - Quick service + local health check
+view-logs.bat            - Open logs folder
+run-test.bat             - Run API smoke test script
 
 
-CONFIGURATION
--------------
-Edit appsettings.json to change:
-
-  "Sage": {
-    "Username": "YOUR_USERNAME",   <- Sage 100 username
-    "Password": "YOUR_PASSWORD",   <- Sage 100 password
-    "Company": "TST",              <- Company code (TST or UAF)
-    "ServerPath": "\\\\uaf-erp\\Sage Premium 2022\\MAS90\\Home"
-  },
-  "Api": {
-    "Port": 3000,             <- API port
-    "ApiKey": ""              <- Optional API key for security
-  }
-
-After changes, restart the service:
-  1. Run stop-service.bat (as Admin)
-  2. Run start-service.bat (as Admin)
+REBOOT BEHAVIOR
+---------------
+- UAFSageMiddleware is configured as Automatic startup service.
+- cloudflared should be installed as Automatic startup service.
+- UAF-VerifyServices startup task runs after boot (SYSTEM account)
+  and verifies/restarts middleware/cloudflared plus health endpoints.
 
 
-API ENDPOINTS
--------------
-POST /api/v1/sales-orders
-  - Create a new sales order
-  - Headers: Content-Type: application/json
-  - Headers: X-API-Key: <your-key> (if configured)
-  
-  Body:
-  {
-    "customerNumber": "CUST001",
-    "poNumber": "PO-12345",
-    "lines": [
-      {
-        "itemCode": "ITEM001",
-        "quantity": 10
-      }
-    ]
-  }
+PROFILE SWITCHING (TST/UAF)
+---------------------------
+Use:
+  uaf-set-company.cmd -Profile TST
+  uaf-set-company.cmd -Profile UAF
 
+The command updates company + credentials together and restarts the service.
+If username/password are omitted, it prompts interactively.
+
+
+HEALTH ENDPOINTS
+----------------
 GET /health
-  - Basic health check
-
 GET /health/ready
-  - Detailed health check (includes Sage 100 status)
+
+Local check:
+  http://localhost:3000/health/ready
+
+Tunnel check:
+  https://sage.uaf-automation.uk/health/ready
 
 
 LOGS
 ----
-Logs are stored in the "logs" subfolder.
-- uaf-middleware-YYYY-MM-DD.log (daily rolling)
-- Also logged to Windows Event Viewer (Warnings/Errors)
+- Middleware logs: logs\uaf-middleware-YYYY-MM-DD.log
+- Boot verification: C:\UAF-Auto\logs\boot-verify.log
+- Ops scripts: C:\UAF-Auto\logs\ops\*.log
 
 
-TROUBLESHOOTING
----------------
-1. Service won't start?
-   - Check logs folder for error details
-   - Check Windows Event Viewer > Application
-   - Verify Sage 100 credentials in appsettings.json
-   - Verify network path to Sage 100 server
-
-2. API not responding?
-   - Run check-status.bat
-   - Check if another app is using port 3000
-   - Check Windows Firewall settings
-
-3. Orders failing?
-   - Check logs for specific error messages
-   - Verify customer/item codes exist in Sage 100
-   - Verify user has Sales Order permissions
+TROUBLESHOOTING QUICK CHECK
+---------------------------
+1. Run uaf-verify.cmd
+2. Check middleware service status
+3. Check cloudflared service status
+4. Confirm UAF-VerifyServices task exists and has recent run
+5. Check logs for exact error
 
 
 SUPPORT
@@ -121,9 +104,4 @@ SUPPORT
 Contact: Dylan Buck
 Project: UAF Air Filter Distribution
 
-
 ============================================
-
-
-
-

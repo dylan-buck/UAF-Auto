@@ -774,9 +774,9 @@ public class CustomerService : ICustomerService
             if (searchResult.Customers.Count == 0)
             {
                 response.Resolved = false;
-                response.Recommendation = "REJECTED";
+                response.Recommendation = "NO_MATCH";
                 response.Message = $"No customers found matching name '{request.CustomerName}'";
-                response.ScoringDetails.Add("❌ No customers found with matching name");
+                response.ScoringDetails.Add("No customers found with matching name");
                 return response;
             }
 
@@ -819,91 +819,41 @@ public class CustomerService : ICustomerService
             if (response.Candidates.Count == 0)
             {
                 response.Resolved = false;
-                response.Recommendation = "REJECTED";
+                response.Recommendation = "NO_MATCH";
                 response.Message = "Could not score any customer matches";
-                response.ScoringDetails.Add("❌ Could not score any customer matches");
+                response.ScoringDetails.Add("Could not score any customer matches");
                 return response;
             }
 
             response.BestMatch = response.Candidates.First();
             response.Confidence = Math.Round(response.BestMatch.Score, 4); // Round to avoid floating point issues
 
-            // SIMPLIFIED PASS/FAIL LOGIC
-            // Ship-to addresses are unique per customer - a match identifies the customer
-            // Binary decision: either we can create the order or we can't
-
-            var issues = new List<string>();
-
-            // Check 1: Did we find a ship-to match?
             bool hasShipToMatch = !string.IsNullOrEmpty(response.BestMatch.MatchedShipToCode);
+            bool hasWarehouseCode = !string.IsNullOrWhiteSpace(response.BestMatch.WarehouseCode);
+            bool hasShipVia = !string.IsNullOrWhiteSpace(response.BestMatch.ShipVia);
 
-            if (!hasShipToMatch)
-            {
-                response.Resolved = false;
-                response.Recommendation = "REJECTED";
-                response.Message = "Ship-to address does not match any customer on file";
-                issues.Add("Ship-to address does not match any address on the customer's account");
-            }
-            else
-            {
-                // Check 2: Does the matched ship-to have required config?
-                bool hasWarehouseCode = !string.IsNullOrWhiteSpace(response.BestMatch.WarehouseCode);
-                bool hasShipVia = !string.IsNullOrWhiteSpace(response.BestMatch.ShipVia);
+            // This service reports matching facts only.
+            // Tenant-specific PASS/REJECTED policy is owned by automation.
+            response.Resolved = hasShipToMatch;
+            response.Recommendation = hasShipToMatch ? "MATCHED" : "NO_MATCH";
 
-                if (!hasWarehouseCode)
-                {
-                    issues.Add("Ship-to missing warehouse configuration");
-                }
+            response.Message = hasShipToMatch
+                ? $"Best customer match: {response.BestMatch.CustomerName} (Ship-to: {response.BestMatch.MatchedShipToCode})"
+                : "No ship-to address match found for the best customer candidate";
 
-                if (!hasShipVia)
-                {
-                    issues.Add("Ship-to missing shipping method configuration");
-                }
-
-                // PASS only if ship-to matched AND has both WarehouseCode and ShipVia
-                if (hasWarehouseCode && hasShipVia)
-                {
-                    response.Resolved = true;
-                    response.Recommendation = "PASS";
-                    response.Message = $"Customer identified: {response.BestMatch.CustomerName} " +
-                        $"(Ship-to: {response.BestMatch.MatchedShipToCode})";
-                }
-                else
-                {
-                    response.Resolved = false;
-                    response.Recommendation = "REJECTED";
-                    response.Message = $"Ship-to configuration incomplete for {response.BestMatch.CustomerName}";
-                }
-            }
-
-            // Add issues to message if any
-            if (issues.Count > 0 && !response.Message.Contains("ISSUES"))
-            {
-                response.Message += " - ISSUES: " + string.Join("; ", issues);
-            }
-
-            // Add scoring details
             response.ScoringDetails = response.BestMatch.ScoreBreakdown.Details;
-
-            // Add issue details to scoring
-            foreach (var issue in issues)
-            {
-                response.ScoringDetails.Add($"❌ {issue}");
-            }
-
-            // Add success indicators
-            if (response.Recommendation == "PASS")
-            {
-                response.ScoringDetails.Add($"✅ Ship-to matched: {response.BestMatch.MatchedShipToCode}");
-                response.ScoringDetails.Add($"✅ Warehouse configured: {response.BestMatch.WarehouseCode}");
-                response.ScoringDetails.Add($"✅ Ship via configured: {response.BestMatch.ShipVia}");
-            }
+            response.ScoringDetails.Add($"Ship-to matched: {(hasShipToMatch ? "yes" : "no")}");
+            response.ScoringDetails.Add($"Warehouse configured: {(hasWarehouseCode ? "yes" : "no")}");
+            response.ScoringDetails.Add($"Ship via configured: {(hasShipVia ? "yes" : "no")}");
 
             _logger.LogInformation(
-                "Customer resolution: {Recommendation} - {CustomerNumber} (ShipTo: {ShipToCode})",
+                "Customer resolution: {Recommendation}, Confidence={Confidence:P0} - {CustomerNumber} (ShipTo: {ShipToCode}, WarehouseConfigured={HasWarehouse}, ShipViaConfigured={HasShipVia})",
                 response.Recommendation,
+                response.Confidence,
                 response.BestMatch.CustomerNumber,
-                response.BestMatch.MatchedShipToCode ?? "none");
+                response.BestMatch.MatchedShipToCode ?? "none",
+                hasWarehouseCode,
+                hasShipVia);
 
             return response;
         }

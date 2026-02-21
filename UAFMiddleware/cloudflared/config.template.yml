@@ -1,0 +1,16 @@
+# Cloudflare Named Tunnel Configuration Template
+# Replace placeholder values before installing the cloudflared service.
+
+# Example setup:
+#   cloudflared tunnel login
+#   cloudflared tunnel create uaf-middleware
+#   cloudflared tunnel route dns uaf-middleware sage.uaf-automation.uk
+#   cloudflared service install --config C:\UAF-Auto\.cloudflared\config.yml
+
+tunnel: <TUNNEL-ID>
+credentials-file: C:\Users\<WINDOWS-USER>\.cloudflared\<TUNNEL-ID>.json
+
+ingress:
+  - hostname: sage.uaf-automation.uk
+    service: http://localhost:3000
+  - service: http_status:404

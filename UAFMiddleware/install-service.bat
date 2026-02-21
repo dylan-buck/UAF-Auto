@@ -88,6 +88,17 @@ timeout /t 3 /nobreak >nul
 sc query %SERVICE_NAME% | find "RUNNING" >nul
 
 if %errorLevel% equ 0 (
+    if exist "%INSTALL_DIR%ops\bootstrap-host.ps1" (
+        echo.
+        echo Configuring startup verification and dependency checks...
+        powershell -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_DIR%ops\bootstrap-host.ps1" -AllowMissingCloudflared -SkipTunnelCheck >nul 2>&1
+        if %errorLevel% neq 0 (
+            echo WARNING: Bootstrap checks reported issues. Run uaf-bootstrap.cmd as Administrator for full setup.
+        ) else (
+            echo Bootstrap checks completed.
+        )
+    )
+
     echo.
     echo ============================================
     echo SUCCESS! Service installed and running.
@@ -102,6 +113,7 @@ if %errorLevel% equ 0 (
     echo Manage via:
     echo   - Windows Services (services.msc)
     echo   - start-service.bat / stop-service.bat
+    echo   - uaf-bootstrap.cmd / uaf-verify.cmd
     echo.
 ) else (
     echo.
@@ -111,7 +123,6 @@ if %errorLevel% equ 0 (
 )
 
 pause
-
 
 
 

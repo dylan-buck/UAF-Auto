@@ -61,7 +61,8 @@ public class CustomerResolutionResponse
     public double Confidence { get; set; }
     
     /// <summary>
-    /// Recommendation: AUTO_PROCESS, MANUAL_REVIEW, or REJECTED
+    /// Generic match recommendation from middleware: MATCHED or NO_MATCH.
+    /// Tenant/business PASS/REJECTED decisions should be made by automation.
     /// </summary>
     public string Recommendation { get; set; } = string.Empty;
     
@@ -165,5 +166,4 @@ public class MatchScoreBreakdown
     /// </summary>
     public List<string> Details { get; set; } = new();
 }
-
 
