@@ -93,18 +93,21 @@ if ($cloudflaredService.Exists) {
 
 if (-not $SkipVerification) {
     $verifyScript = Join-Path $scriptRoot 'verify-stack.ps1'
-    $verifyArgs = @('-Repair')
+    $verifyParams = @{
+        Repair = $true
+    }
+
     if ($SkipTunnelCheck) {
-        $verifyArgs += '-SkipTunnelCheck'
+        $verifyParams.SkipTunnelCheck = $true
     }
 
     if ($AllowMissingCloudflared) {
-        $verifyArgs += '-SkipTunnelCheck'
-        $verifyArgs += '-AllowMissingCloudflared'
+        $verifyParams.SkipTunnelCheck = $true
+        $verifyParams.AllowMissingCloudflared = $true
     }
 
     Write-OpsLog -Message 'Running post-bootstrap verification' -LogFile $logFile
-    & $verifyScript @verifyArgs
+    & $verifyScript @verifyParams
     if ($LASTEXITCODE -ne 0) {
         Write-OpsLog -Message "Post-bootstrap verification failed with exit code $LASTEXITCODE" -Level 'ERROR' -LogFile $logFile
         exit $LASTEXITCODE
