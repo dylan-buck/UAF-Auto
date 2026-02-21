@@ -173,7 +173,7 @@ function Invoke-ReadinessCheck {
             Write-OpsLog -Message "Health check attempt $attempt for $Uri returned status '$($response.status)'" -Level 'WARN' -LogFile $LogFile
         }
         catch {
-            Write-OpsLog -Message "Health check attempt $attempt failed for $Uri: $($_.Exception.Message)" -Level 'WARN' -LogFile $LogFile
+            Write-OpsLog -Message "Health check attempt $attempt failed for ${Uri}: $($_.Exception.Message)" -Level 'WARN' -LogFile $LogFile
         }
 
         if ($attempt -lt $Retries) {
