@@ -46,9 +46,22 @@ if (-not (Test-Path -LiteralPath $projectPath)) {
 }
 
 $publishDir = Join-Path $repoRoot 'publish'
+$effectivePublishDir = $publishDir
 $backupRoot = Join-Path $installDir 'backups'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupDir = Join-Path $backupRoot $timestamp
+
+try {
+    $resolvedInstallDir = (Resolve-Path -LiteralPath $installDir).Path
+    $resolvedPublishDir = if (Test-Path -LiteralPath $publishDir) { (Resolve-Path -LiteralPath $publishDir).Path } else { $publishDir }
+    if ($resolvedInstallDir -eq $resolvedPublishDir) {
+        $effectivePublishDir = Join-Path $repoRoot 'publish-staging'
+        Write-OpsLog -Message "Install directory matches publish output path; using staging publish directory '$effectivePublishDir'" -Level 'WARN' -LogFile $logFile
+    }
+}
+catch {
+    Write-OpsLog -Message "Could not resolve install/publish paths for comparison; defaulting publish output to '$effectivePublishDir'" -Level 'WARN' -LogFile $logFile
+}
 
 Ensure-Directory -Path $backupRoot
 Write-OpsLog -Message "Creating backup: $backupDir" -LogFile $logFile
@@ -61,9 +74,17 @@ if ($backupCode -gt 7) {
 
 try {
     if ($PullLatest) {
-        if (Test-Path -LiteralPath (Join-Path $repoRoot '.git')) {
+        $gitRoot = $repoRoot
+        if (-not (Test-Path -LiteralPath (Join-Path $gitRoot '.git'))) {
+            $parent = Split-Path $repoRoot -Parent
+            if (-not [string]::IsNullOrWhiteSpace($parent) -and (Test-Path -LiteralPath (Join-Path $parent '.git'))) {
+                $gitRoot = $parent
+            }
+        }
+
+        if (Test-Path -LiteralPath (Join-Path $gitRoot '.git')) {
             Write-OpsLog -Message 'Pulling latest changes from git' -LogFile $logFile
-            Push-Location $repoRoot
+            Push-Location $gitRoot
             try {
                 git pull
             }
@@ -76,12 +97,12 @@ try {
         }
     }
 
-    if (Test-Path -LiteralPath $publishDir) {
-        Remove-Item -Path $publishDir -Recurse -Force
+    if (Test-Path -LiteralPath $effectivePublishDir) {
+        Remove-Item -Path $effectivePublishDir -Recurse -Force
     }
 
     Write-OpsLog -Message 'Publishing middleware binaries' -LogFile $logFile
-    dotnet publish $projectPath -c $Configuration -r $PublishRuntime --self-contained false -o $publishDir
+    dotnet publish $projectPath -c $Configuration -r $PublishRuntime --self-contained false -o $effectivePublishDir
 
     Write-OpsLog -Message "Stopping service '$($serviceInfo.Name)'" -LogFile $logFile
     if (-not (Stop-ServiceSafe -Name $serviceInfo.Name -TimeoutSeconds 45)) {
@@ -89,7 +110,7 @@ try {
     }
 
     Write-OpsLog -Message "Deploying binaries to '$installDir'" -LogFile $logFile
-    robocopy $publishDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+    robocopy $effectivePublishDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
     $deployCode = $LASTEXITCODE
     if ($deployCode -gt 7) {
         throw "Deploy failed with robocopy code $deployCode"
