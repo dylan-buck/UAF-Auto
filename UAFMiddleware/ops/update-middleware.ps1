@@ -52,7 +52,8 @@ $backupDir = Join-Path $backupRoot $timestamp
 
 Ensure-Directory -Path $backupRoot
 Write-OpsLog -Message "Creating backup: $backupDir" -LogFile $logFile
-$backupCode = (robocopy $installDir $backupDir /E /R:1 /W:1 /XD logs backups /NFL /NDL /NJH /NJS /NP | Out-Null; $LASTEXITCODE)
+robocopy $installDir $backupDir /E /R:1 /W:1 /XD logs backups /NFL /NDL /NJH /NJS /NP | Out-Null
+$backupCode = $LASTEXITCODE
 if ($backupCode -gt 7) {
     Write-OpsLog -Message "Backup failed with robocopy code $backupCode" -Level 'ERROR' -LogFile $logFile
     exit 1
@@ -88,7 +89,8 @@ try {
     }
 
     Write-OpsLog -Message "Deploying binaries to '$installDir'" -LogFile $logFile
-    $deployCode = (robocopy $publishDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; $LASTEXITCODE)
+    robocopy $publishDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+    $deployCode = $LASTEXITCODE
     if ($deployCode -gt 7) {
         throw "Deploy failed with robocopy code $deployCode"
     }
@@ -122,7 +124,8 @@ catch {
             Write-OpsLog -Message "Service '$($serviceInfo.Name)' did not stop cleanly before rollback" -Level 'WARN' -LogFile $logFile
         }
 
-        $rollbackCode = (robocopy $backupDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; $LASTEXITCODE)
+        robocopy $backupDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+        $rollbackCode = $LASTEXITCODE
         if ($rollbackCode -gt 7) {
             throw "Rollback failed with robocopy code $rollbackCode"
         }

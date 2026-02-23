@@ -21,6 +21,7 @@ This document outlines the API endpoints needed to process incoming Purchase Ord
 - Middleware returns matching/scoring facts and Sage execution results.
 - Tenant-specific business policy (for example PASS/REJECTED decisions and edge-case transforms) is handled in automation.
 - n8n owns UAF rules such as item-code prefix normalization and final routing decisions.
+- UAF SKU rule in automation: if description contains "Poly" keep full SKU; else if it contains "Merv 10" drop leading "FT" only.
 
 ## Ingestion Flow
 

@@ -89,6 +89,58 @@ public class SalesOrderController : ControllerBase
     }
 
     /// <summary>
+    /// Get Sage-confirmed details for an existing sales order.
+    /// </summary>
+    [HttpGet("{salesOrderNumber}/details")]
+    public async Task<ActionResult<SalesOrderDetailsResponse>> GetSalesOrderDetails(
+        string salesOrderNumber,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(salesOrderNumber))
+        {
+            return BadRequest(new SalesOrderDetailsResponse
+            {
+                Success = false,
+                ErrorCode = "VALIDATION_ERROR",
+                ErrorMessage = "Sales order number is required"
+            });
+        }
+
+        try
+        {
+            var result = await _salesOrderService.GetSalesOrderDetailsAsync(salesOrderNumber, cancellationToken);
+            if (result.Success)
+            {
+                return Ok(result);
+            }
+
+            return StatusCode(GetStatusCodeForDetailsError(result.ErrorCode), result);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogError("Timeout waiting for available session while reading order details");
+            return StatusCode(503, new SalesOrderDetailsResponse
+            {
+                Success = false,
+                SalesOrderNumber = salesOrderNumber,
+                ErrorCode = "SERVICE_BUSY",
+                ErrorMessage = "Service is busy, please try again"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error reading sales order details for {OrderNo}", salesOrderNumber);
+            return StatusCode(500, new SalesOrderDetailsResponse
+            {
+                Success = false,
+                SalesOrderNumber = salesOrderNumber,
+                ErrorCode = "INTERNAL_ERROR",
+                ErrorMessage = "Failed to retrieve sales order details"
+            });
+        }
+    }
+
+    /// <summary>
     /// Test endpoint - verifies the API is working (does not create an order)
     /// </summary>
     [HttpGet("test")]
@@ -137,5 +189,16 @@ public class SalesOrderController : ControllerBase
             _ => 500
         };
     }
-}
 
+    private static int GetStatusCodeForDetailsError(string? errorCode)
+    {
+        return errorCode switch
+        {
+            "VALIDATION_ERROR" => 400,
+            "ORDER_NOT_FOUND" => 404,
+            "COM_ERROR" => 502,
+            "SERVICE_BUSY" => 503,
+            _ => 500
+        };
+    }
+}

@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Globalization;
 using UAFMiddleware.Models;
 
 namespace UAFMiddleware.Services;
@@ -420,6 +421,219 @@ public class SalesOrderService : ISalesOrderService
         }
     }
 
+    public async Task<SalesOrderDetailsResponse> GetSalesOrderDetailsAsync(
+        string salesOrderNumber,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(salesOrderNumber))
+        {
+            return new SalesOrderDetailsResponse
+            {
+                Success = false,
+                ErrorCode = "VALIDATION_ERROR",
+                ErrorMessage = "Sales order number is required"
+            };
+        }
+
+        var normalizedOrderNo = salesOrderNumber.Trim();
+        SessionWrapper? session = null;
+        dynamic? salesOrder = null;
+        dynamic? lines = null;
+        bool sessionCorrupted = false;
+
+        try
+        {
+            _logger.LogInformation("Reading sales order details for {SalesOrderNo}", normalizedOrderNo);
+
+            session = await _sessionManager.GetSessionAsync(cancellationToken);
+
+            try
+            {
+                dynamic sess = session.Session;
+                int taskId = sess.nLookupTask("SO_SalesOrder_ui");
+                if (taskId != 0)
+                {
+                    sess.nSetProgram(taskId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not set program context while reading sales order details (non-fatal)");
+            }
+
+            salesOrder = session.ProvideXScript.NewObject("SO_SalesOrder_bus", session.Session);
+            if (salesOrder == null)
+            {
+                sessionCorrupted = true;
+                throw new InvalidOperationException("Failed to create SO_SalesOrder_bus object");
+            }
+
+            object setKeyValueResultObj = salesOrder.nSetKeyValue("SalesOrderNo$", normalizedOrderNo);
+            int setKeyValueResult = ConvertComResult(setKeyValueResultObj);
+            _logger.LogInformation("Read details nSetKeyValue('SalesOrderNo$', '{OrderNo}') returned: {Result}",
+                normalizedOrderNo, setKeyValueResult);
+
+            int findResult;
+            try
+            {
+                findResult = ConvertComResult(salesOrder.nFind());
+            }
+            catch
+            {
+                // Fallback for environments where nFind can be unavailable.
+                findResult = ConvertComResult(salesOrder.nSetKey());
+            }
+
+            if (findResult == 0)
+            {
+                return new SalesOrderDetailsResponse
+                {
+                    Success = false,
+                    SalesOrderNumber = normalizedOrderNo,
+                    ErrorCode = "ORDER_NOT_FOUND",
+                    ErrorMessage = $"Sales order '{normalizedOrderNo}' was not found"
+                };
+            }
+
+            string divisionNo = GetComStringValue(salesOrder, "ARDivisionNo$");
+            string customerNo = GetComStringValue(salesOrder, "CustomerNo$");
+            string customerNumber = !string.IsNullOrWhiteSpace(divisionNo) && !string.IsNullOrWhiteSpace(customerNo)
+                ? $"{divisionNo}-{customerNo}"
+                : customerNo;
+
+            var lineDetails = new List<SalesOrderLineDetail>();
+            decimal computedTotal = 0;
+
+            lines = salesOrder.oLines;
+            if (lines != null)
+            {
+                bool hasMore = ConvertComResult(lines.nMoveFirst()) == 1;
+                int lineNumber = 0;
+                int scanCount = 0;
+
+                while (hasMore && scanCount < 500)
+                {
+                    scanCount++;
+                    lineNumber++;
+
+                    string itemCode = GetComStringValue(lines, "ItemCode$").Trim();
+                    string description = GetComStringValue(lines, "ItemCodeDesc$");
+                    decimal quantity = GetComDecimalValue(lines, "QuantityOrdered") ?? 0;
+                    decimal? unitPrice = GetComDecimalValue(lines, "UnitPrice");
+                    decimal? extendedPrice = FirstDecimal(
+                        GetComDecimalValue(lines, "ExtensionAmt"),
+                        GetComDecimalValue(lines, "LineExtensionAmt"),
+                        GetComDecimalValue(lines, "ExtendedAmt"),
+                        unitPrice.HasValue ? unitPrice.Value * quantity : (decimal?)null
+                    );
+
+                    if (!string.IsNullOrWhiteSpace(itemCode))
+                    {
+                        lineDetails.Add(new SalesOrderLineDetail
+                        {
+                            LineNumber = lineNumber,
+                            ItemCode = itemCode,
+                            Description = description,
+                            Quantity = quantity,
+                            UnitPrice = unitPrice,
+                            ExtendedPrice = extendedPrice,
+                            WarehouseCode = GetComStringValue(lines, "WarehouseCode$")
+                        });
+                    }
+
+                    if (extendedPrice.HasValue)
+                    {
+                        computedTotal += extendedPrice.Value;
+                    }
+
+                    hasMore = ConvertComResult(lines.nMoveNext()) == 1;
+                }
+            }
+
+            decimal? orderTotal = FirstDecimal(
+                GetComDecimalValue(salesOrder, "OrderTotal"),
+                GetComDecimalValue(salesOrder, "TaxableSalesAmt"),
+                computedTotal > 0 ? computedTotal : (decimal?)null
+            );
+
+            return new SalesOrderDetailsResponse
+            {
+                Success = true,
+                SalesOrderNumber = normalizedOrderNo,
+                CustomerNumber = customerNumber,
+                CustomerName = GetComStringValue(salesOrder, "CustomerName$"),
+                CustomerPONumber = GetComStringValue(salesOrder, "CustomerPONo$"),
+                ShipToCode = GetComStringValue(salesOrder, "ShipToCode$"),
+                WarehouseCode = GetComStringValue(salesOrder, "WarehouseCode$"),
+                ShipVia = GetComStringValue(salesOrder, "ShipVia$"),
+                OrderTotal = orderTotal,
+                Lines = lineDetails,
+                Message = $"Sales order {normalizedOrderNo} details retrieved successfully"
+            };
+        }
+        catch (COMException comEx)
+        {
+            _logger.LogError(comEx, "COM error reading sales order {SalesOrderNo}", normalizedOrderNo);
+            sessionCorrupted = true;
+            return new SalesOrderDetailsResponse
+            {
+                Success = false,
+                SalesOrderNumber = normalizedOrderNo,
+                ErrorCode = "COM_ERROR",
+                ErrorMessage = $"Sage 100 COM error: {comEx.Message}"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error reading sales order {SalesOrderNo}", normalizedOrderNo);
+            return new SalesOrderDetailsResponse
+            {
+                Success = false,
+                SalesOrderNumber = normalizedOrderNo,
+                ErrorCode = "UNEXPECTED_ERROR",
+                ErrorMessage = ex.Message
+            };
+        }
+        finally
+        {
+            if (lines != null)
+            {
+                try
+                {
+                    if (Marshal.IsComObject(lines))
+                    {
+                        Marshal.ReleaseComObject(lines);
+                    }
+                }
+                catch { /* best effort */ }
+            }
+
+            if (salesOrder != null)
+            {
+                try
+                {
+                    if (Marshal.IsComObject(salesOrder))
+                    {
+                        Marshal.ReleaseComObject(salesOrder);
+                    }
+                }
+                catch { /* best effort */ }
+            }
+
+            if (session != null)
+            {
+                if (sessionCorrupted)
+                {
+                    _sessionManager.InvalidateSession(session);
+                }
+                else
+                {
+                    _sessionManager.ReleaseSession(session);
+                }
+            }
+        }
+    }
+
     private string GetNextSalesOrderNumber(dynamic salesOrder)
     {
         try
@@ -516,6 +730,88 @@ public class SalesOrderService : ISalesOrderService
     private static int ConvertComResult(object? result)
     {
         return result != null ? Convert.ToInt32(result) : 0;
+    }
+
+    private static string GetComStringValue(dynamic obj, string fieldName)
+    {
+        try
+        {
+            try
+            {
+                object value = obj.sValue(fieldName);
+                if (value != null)
+                {
+                    return value.ToString() ?? string.Empty;
+                }
+            }
+            catch
+            {
+                // Fall back to nGetValue if sValue is not available for this field/object.
+            }
+
+            string valueByRef = string.Empty;
+            obj.nGetValue(fieldName, ref valueByRef);
+            return valueByRef ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static decimal? GetComDecimalValue(dynamic obj, string fieldName)
+    {
+        try
+        {
+            var stringValue = GetComStringValue(obj, fieldName);
+            decimal parsedInvariant;
+            if (decimal.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out parsedInvariant))
+            {
+                return parsedInvariant;
+            }
+
+            decimal parsedCurrent;
+            if (decimal.TryParse(stringValue, NumberStyles.Any, CultureInfo.CurrentCulture, out parsedCurrent))
+            {
+                return parsedCurrent;
+            }
+
+            object valueByRef = 0m;
+            obj.nGetValue(fieldName, ref valueByRef);
+            if (valueByRef == null)
+            {
+                return null;
+            }
+
+            if (decimal.TryParse(valueByRef.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out parsedInvariant))
+            {
+                return parsedInvariant;
+            }
+
+            if (decimal.TryParse(valueByRef.ToString(), NumberStyles.Any, CultureInfo.CurrentCulture, out parsedCurrent))
+            {
+                return parsedCurrent;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static decimal? FirstDecimal(params decimal?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (value.HasValue)
+            {
+                return value;
+            }
+        }
+
+        return null;
     }
 
     private static string TryGetLastError(dynamic obj, string fallback = "Unknown error")
