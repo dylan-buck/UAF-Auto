@@ -173,7 +173,25 @@ function Invoke-ReadinessCheck {
             Write-OpsLog -Message "Health check attempt $attempt for $Uri returned status '$($response.status)'" -Level 'WARN' -LogFile $LogFile
         }
         catch {
-            Write-OpsLog -Message "Health check attempt $attempt failed for ${Uri}: $($_.Exception.Message)" -Level 'WARN' -LogFile $LogFile
+            $statusCode = $null
+            $statusDescription = $null
+            try {
+                if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                    $statusDescription = $_.Exception.Response.StatusDescription
+                }
+            }
+            catch {
+                # best effort
+            }
+
+            if ($null -ne $statusCode) {
+                $statusText = if ([string]::IsNullOrWhiteSpace($statusDescription)) { '' } else { " $statusDescription" }
+                Write-OpsLog -Message "Health check attempt $attempt failed for ${Uri}: HTTP $statusCode$statusText" -Level 'WARN' -LogFile $LogFile
+            }
+            else {
+                Write-OpsLog -Message "Health check attempt $attempt failed for ${Uri}: $($_.Exception.Message)" -Level 'WARN' -LogFile $LogFile
+            }
         }
 
         if ($attempt -lt $Retries) {

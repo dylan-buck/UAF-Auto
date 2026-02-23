@@ -9,6 +9,7 @@ param(
     [switch]$SkipTunnelCheck,
     [int]$HealthRetries = 18,
     [int]$HealthDelaySeconds = 5,
+    [string]$LocalLivenessUrl = 'http://localhost:3000/health',
     [string]$LocalHealthUrl = 'http://localhost:3000/health/ready',
     [string]$TunnelHealthUrl = 'https://sage.uaf-automation.uk/health/ready'
 )
@@ -68,6 +69,7 @@ $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupDir = Join-Path $backupRoot $timestamp
 $rollbackOnFailure = $true
 $touchedInstall = $false
+$localLivenessPassed = $false
 $localHealthPassed = $false
 $tunnelHealthPassed = $SkipTunnelCheck
 $cloudflaredStatus = 'not-checked'
@@ -143,6 +145,13 @@ try {
         throw "Failed to start service '$($serviceInfo.Name)' after deployment"
     }
 
+    $localLivenessOk = Invoke-ReadinessCheck -Uri $LocalLivenessUrl -Retries $HealthRetries -DelaySeconds $HealthDelaySeconds -ExpectedStatus 'healthy' -LogFile $logFile
+    if (-not $localLivenessOk) {
+        throw "Local liveness check failed after update: $LocalLivenessUrl"
+    }
+    $localLivenessPassed = $true
+    Write-OpsLog -Message 'Local middleware liveness verified' -LogFile $logFile
+
     $localHealthOk = Invoke-ReadinessCheck -Uri $LocalHealthUrl -Retries $HealthRetries -DelaySeconds $HealthDelaySeconds -LogFile $logFile
     if (-not $localHealthOk) {
         Write-OpsLog -Message "Local health check failed; attempting one middleware service restart before rollback" -Level 'WARN' -LogFile $logFile
@@ -158,6 +167,7 @@ try {
     }
 
     if (-not $localHealthOk) {
+        $rollbackOnFailure = $false
         throw "Local health check failed after update: $LocalHealthUrl"
     }
     $localHealthPassed = $true
@@ -211,7 +221,7 @@ try {
         Write-OpsLog -Message 'Tunnel readiness verified' -LogFile $logFile
     }
 
-    Write-OpsLog -Message "Verification summary: localHealth=$localHealthPassed; tunnelHealth=$tunnelHealthPassed; cloudflaredStatus=$cloudflaredStatus" -LogFile $logFile
+    Write-OpsLog -Message "Verification summary: localLiveness=$localLivenessPassed; localHealth=$localHealthPassed; tunnelHealth=$tunnelHealthPassed; cloudflaredStatus=$cloudflaredStatus" -LogFile $logFile
     Write-OpsLog -Message 'Middleware update completed successfully' -LogFile $logFile
     exit 0
 }
@@ -243,6 +253,9 @@ catch {
     }
     else {
         Write-OpsLog -Message "Skipping rollback (rollbackOnFailure=$rollbackOnFailure; touchedInstall=$touchedInstall)" -Level 'WARN' -LogFile $logFile
+        if ($touchedInstall) {
+            Write-OpsLog -Message "Deployment files remain in place at '$installDir' for post-deploy connectivity troubleshooting" -Level 'WARN' -LogFile $logFile
+        }
     }
 
     exit 1
