@@ -62,6 +62,32 @@ if (-not (Test-Path -LiteralPath $projectPath)) {
     exit 1
 }
 
+$localSettingsPath = Join-Path $repoRoot 'appsettings.Local.json'
+$sageUsername = [Environment]::GetEnvironmentVariable('Sage__Username', 'Machine')
+$sagePassword = [Environment]::GetEnvironmentVariable('Sage__Password', 'Machine')
+
+if ([string]::IsNullOrWhiteSpace($sageUsername) -or [string]::IsNullOrWhiteSpace($sagePassword)) {
+    if (Test-Path -LiteralPath $localSettingsPath) {
+        try {
+            $localConfig = Get-Content -Path $localSettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]::IsNullOrWhiteSpace($sageUsername)) {
+                $sageUsername = $localConfig.Sage.Username
+            }
+            if ([string]::IsNullOrWhiteSpace($sagePassword)) {
+                $sagePassword = $localConfig.Sage.Password
+            }
+        }
+        catch {
+            Write-OpsLog -Message "Unable to parse '$localSettingsPath' while checking Sage credentials: $($_.Exception.Message)" -Level 'WARN' -LogFile $logFile
+        }
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($sageUsername) -or [string]::IsNullOrWhiteSpace($sagePassword)) {
+    Write-OpsLog -Message "Sage credentials are missing. Configure appsettings.Local.json or machine env vars (Sage__Username/Sage__Password) before updating." -Level 'ERROR' -LogFile $logFile
+    exit 1
+}
+
 $publishDir = Join-Path $repoRoot 'publish'
 $effectivePublishDir = $publishDir
 $backupRoot = Join-Path $installDir 'backups'
