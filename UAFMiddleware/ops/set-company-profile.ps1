@@ -27,7 +27,7 @@ $originalArgs = @($MyInvocation.UnboundArguments)
 Ensure-Admin -ScriptPath $PSCommandPath -Arguments $originalArgs
 
 if ([string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
-    $LocalSettingsPath = Join-Path $rootDir 'appsettings.Local.json'
+    $LocalSettingsPath = Join-Path $rootDir 'src\appsettings.Local.json'
 }
 
 if ([string]::IsNullOrWhiteSpace($Username)) {

@@ -7,6 +7,8 @@ param(
     [string]$Configuration = 'Release',
     [switch]$PullLatest,
     [switch]$SkipTunnelCheck,
+    [switch]$PromptForCredentials,
+    [switch]$NoPromptForCredentials,
     [int]$HealthRetries = 18,
     [int]$HealthDelaySeconds = 5,
     [string]$LocalLivenessUrl = 'http://localhost:3000/health',
@@ -62,29 +64,81 @@ if (-not (Test-Path -LiteralPath $projectPath)) {
     exit 1
 }
 
-$localSettingsPath = Join-Path $repoRoot 'appsettings.Local.json'
+$localSettingsPath = Join-Path $repoRoot 'src\appsettings.Local.json'
+$legacyLocalSettingsPath = Join-Path $repoRoot 'appsettings.Local.json'
 $sageUsername = [Environment]::GetEnvironmentVariable('Sage__Username', 'Machine')
 $sagePassword = [Environment]::GetEnvironmentVariable('Sage__Password', 'Machine')
+$sageCompany = [Environment]::GetEnvironmentVariable('Sage__Company', 'Machine')
 
-if ([string]::IsNullOrWhiteSpace($sageUsername) -or [string]::IsNullOrWhiteSpace($sagePassword)) {
-    if (Test-Path -LiteralPath $localSettingsPath) {
+if ([string]::IsNullOrWhiteSpace($sageUsername) -or [string]::IsNullOrWhiteSpace($sagePassword) -or [string]::IsNullOrWhiteSpace($sageCompany)) {
+    foreach ($settingsPath in @($localSettingsPath, $legacyLocalSettingsPath)) {
+        if (-not (Test-Path -LiteralPath $settingsPath)) {
+            continue
+        }
+
         try {
-            $localConfig = Get-Content -Path $localSettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $localConfig = Get-Content -Path $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
             if ([string]::IsNullOrWhiteSpace($sageUsername)) {
                 $sageUsername = $localConfig.Sage.Username
             }
             if ([string]::IsNullOrWhiteSpace($sagePassword)) {
                 $sagePassword = $localConfig.Sage.Password
             }
+            if ([string]::IsNullOrWhiteSpace($sageCompany)) {
+                $sageCompany = $localConfig.Sage.Company
+            }
         }
         catch {
-            Write-OpsLog -Message "Unable to parse '$localSettingsPath' while checking Sage credentials: $($_.Exception.Message)" -Level 'WARN' -LogFile $logFile
+            Write-OpsLog -Message "Unable to parse '$settingsPath' while checking Sage credentials: $($_.Exception.Message)" -Level 'WARN' -LogFile $logFile
         }
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($sageUsername) -or [string]::IsNullOrWhiteSpace($sagePassword)) {
-    Write-OpsLog -Message "Sage credentials are missing. Configure appsettings.Local.json or machine env vars (Sage__Username/Sage__Password) before updating." -Level 'ERROR' -LogFile $logFile
+if (($PromptForCredentials -or [string]::IsNullOrWhiteSpace($sageUsername) -or [string]::IsNullOrWhiteSpace($sagePassword) -or [string]::IsNullOrWhiteSpace($sageCompany)) -and -not $NoPromptForCredentials) {
+    Write-OpsLog -Message 'Prompting for interactive Sage credential/profile setup.' -Level 'WARN' -LogFile $logFile
+
+    if ($PromptForCredentials -and -not [string]::IsNullOrWhiteSpace($sageUsername)) {
+        $usernameInput = Read-Host "Enter Sage username [$sageUsername]"
+        if (-not [string]::IsNullOrWhiteSpace($usernameInput)) {
+            $sageUsername = $usernameInput.Trim()
+        }
+    }
+    elseif ([string]::IsNullOrWhiteSpace($sageUsername)) {
+        $sageUsername = Read-Host 'Enter Sage username'
+    }
+
+    if ($PromptForCredentials -or [string]::IsNullOrWhiteSpace($sagePassword)) {
+        $passwordSecure = Read-Host 'Enter Sage password' -AsSecureString
+        $sagePassword = Convert-SecureStringToPlainText -SecureString $passwordSecure
+    }
+
+    $defaultCompany = if ([string]::IsNullOrWhiteSpace($sageCompany)) { 'TST' } else { $sageCompany }
+    if ($PromptForCredentials -or [string]::IsNullOrWhiteSpace($sageCompany)) {
+        $companyInput = Read-Host "Enter Sage company code [$defaultCompany]"
+        $sageCompany = if ([string]::IsNullOrWhiteSpace($companyInput)) { $defaultCompany } else { $companyInput.Trim() }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($sageUsername) -and -not [string]::IsNullOrWhiteSpace($sagePassword) -and -not [string]::IsNullOrWhiteSpace($sageCompany)) {
+        $config = Get-OrCreateLocalSettings -Path $localSettingsPath
+        Ensure-Property -Object $config -PropertyName 'Sage' -DefaultValue ([pscustomobject]@{})
+        Ensure-Property -Object $config.Sage -PropertyName 'Username' -DefaultValue ''
+        Ensure-Property -Object $config.Sage -PropertyName 'Password' -DefaultValue ''
+        Ensure-Property -Object $config.Sage -PropertyName 'Company' -DefaultValue 'TST'
+        $config.Sage.Username = $sageUsername
+        $config.Sage.Password = $sagePassword
+        $config.Sage.Company = $sageCompany
+        Save-LocalSettings -Config $config -Path $localSettingsPath
+
+        [Environment]::SetEnvironmentVariable('Sage__Username', $sageUsername, 'Machine')
+        [Environment]::SetEnvironmentVariable('Sage__Password', $sagePassword, 'Machine')
+        [Environment]::SetEnvironmentVariable('Sage__Company', $sageCompany, 'Machine')
+
+        Write-OpsLog -Message "Saved Sage credentials/profile to '$localSettingsPath' and machine environment variables" -LogFile $logFile
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($sageUsername) -or [string]::IsNullOrWhiteSpace($sagePassword) -or [string]::IsNullOrWhiteSpace($sageCompany)) {
+    Write-OpsLog -Message "Sage credentials are missing. Run '.\\uaf-set-credentials.cmd -Profile TST -PersistEnvironment' or rerun update without -NoPromptForCredentials." -Level 'ERROR' -LogFile $logFile
     exit 1
 }
 

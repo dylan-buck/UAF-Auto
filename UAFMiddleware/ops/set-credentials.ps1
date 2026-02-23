@@ -20,7 +20,7 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 if ([string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
     $rootDir = Split-Path $scriptRoot -Parent
-    $LocalSettingsPath = Join-Path $rootDir 'appsettings.Local.json'
+    $LocalSettingsPath = Join-Path $rootDir 'src\appsettings.Local.json'
 }
 
 if ([string]::IsNullOrWhiteSpace($Profile)) {
