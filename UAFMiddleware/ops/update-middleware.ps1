@@ -1,11 +1,13 @@
 param(
     [string]$MiddlewareServiceName = 'UAFSageMiddleware',
+    [string]$CloudflaredPrimaryName = 'Cloudflared',
+    [string]$CloudflaredSecondaryName = 'cloudflared',
     [string]$ProjectRelativePath = 'src\UAFMiddleware.csproj',
     [string]$PublishRuntime = 'win-x64',
     [string]$Configuration = 'Release',
     [switch]$PullLatest,
     [switch]$SkipTunnelCheck,
-    [int]$HealthRetries = 8,
+    [int]$HealthRetries = 18,
     [int]$HealthDelaySeconds = 5,
     [string]$LocalHealthUrl = 'http://localhost:3000/health/ready',
     [string]$TunnelHealthUrl = 'https://sage.uaf-automation.uk/health/ready'
@@ -20,6 +22,20 @@ $originalArgs = @($MyInvocation.UnboundArguments)
 Ensure-Admin -ScriptPath $PSCommandPath -Arguments $originalArgs
 
 Write-OpsLog -Message 'Starting middleware update workflow' -LogFile $logFile
+
+function Resolve-CloudflaredServiceName {
+    param(
+        [string]$PrimaryName,
+        [string]$SecondaryName
+    )
+
+    $cloudflaredService = Get-ServiceInfoByNames -Names @($PrimaryName, $SecondaryName)
+    if ($cloudflaredService.Exists) {
+        return $cloudflaredService.Name
+    }
+
+    return $null
+}
 
 $serviceInfo = Get-ServiceInfoByNames -Names @($MiddlewareServiceName)
 if (-not $serviceInfo.Exists) {
@@ -50,6 +66,11 @@ $effectivePublishDir = $publishDir
 $backupRoot = Join-Path $installDir 'backups'
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupDir = Join-Path $backupRoot $timestamp
+$rollbackOnFailure = $true
+$touchedInstall = $false
+$localHealthPassed = $false
+$tunnelHealthPassed = $SkipTunnelCheck
+$cloudflaredStatus = 'not-checked'
 
 try {
     $resolvedInstallDir = (Resolve-Path -LiteralPath $installDir).Path
@@ -109,6 +130,7 @@ try {
         throw "Failed to stop service '$($serviceInfo.Name)'"
     }
 
+    $touchedInstall = $true
     Write-OpsLog -Message "Deploying binaries to '$installDir'" -LogFile $logFile
     robocopy $effectivePublishDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
     $deployCode = $LASTEXITCODE
@@ -123,42 +145,104 @@ try {
 
     $localHealthOk = Invoke-ReadinessCheck -Uri $LocalHealthUrl -Retries $HealthRetries -DelaySeconds $HealthDelaySeconds -LogFile $logFile
     if (-not $localHealthOk) {
+        Write-OpsLog -Message "Local health check failed; attempting one middleware service restart before rollback" -Level 'WARN' -LogFile $logFile
+        if (-not (Stop-ServiceSafe -Name $serviceInfo.Name -TimeoutSeconds 45)) {
+            Write-OpsLog -Message "Middleware service '$($serviceInfo.Name)' did not stop cleanly during local-health recovery" -Level 'WARN' -LogFile $logFile
+        }
+
+        if (-not (Ensure-ServiceRunning -Name $serviceInfo.Name -TimeoutSeconds 45)) {
+            throw "Local health recovery failed: could not restart service '$($serviceInfo.Name)'"
+        }
+
+        $localHealthOk = Invoke-ReadinessCheck -Uri $LocalHealthUrl -Retries $HealthRetries -DelaySeconds $HealthDelaySeconds -LogFile $logFile
+    }
+
+    if (-not $localHealthOk) {
         throw "Local health check failed after update: $LocalHealthUrl"
     }
+    $localHealthPassed = $true
+    Write-OpsLog -Message 'Local middleware readiness verified' -LogFile $logFile
 
     if (-not $SkipTunnelCheck) {
+        $cloudflaredInfo = Get-ServiceInfoByNames -Names @($CloudflaredPrimaryName, $CloudflaredSecondaryName)
+        if ($cloudflaredInfo.Exists) {
+            $cloudflaredStatus = $cloudflaredInfo.Status
+            Write-OpsLog -Message "Cloudflared service '$($cloudflaredInfo.Name)' status before tunnel check: $cloudflaredStatus" -LogFile $logFile
+        }
+        else {
+            $cloudflaredStatus = 'missing'
+            Write-OpsLog -Message "Cloudflared service was not found by names '$CloudflaredPrimaryName'/'$CloudflaredSecondaryName'" -Level 'WARN' -LogFile $logFile
+        }
+
         $tunnelHealthOk = Invoke-ReadinessCheck -Uri $TunnelHealthUrl -Retries $HealthRetries -DelaySeconds $HealthDelaySeconds -LogFile $logFile
         if (-not $tunnelHealthOk) {
+            Write-OpsLog -Message 'Tunnel health check failed; attempting Cloudflared repair and retry' -Level 'WARN' -LogFile $logFile
+            $cloudflaredServiceName = Resolve-CloudflaredServiceName -PrimaryName $CloudflaredPrimaryName -SecondaryName $CloudflaredSecondaryName
+            if (-not [string]::IsNullOrWhiteSpace($cloudflaredServiceName)) {
+                try {
+                    if (-not (Stop-ServiceSafe -Name $cloudflaredServiceName -TimeoutSeconds 30)) {
+                        Write-OpsLog -Message "Cloudflared service '$cloudflaredServiceName' did not stop cleanly during repair" -Level 'WARN' -LogFile $logFile
+                    }
+                }
+                catch {
+                    Write-OpsLog -Message "Cloudflared stop attempt failed for '$cloudflaredServiceName': $($_.Exception.Message)" -Level 'WARN' -LogFile $logFile
+                }
+
+                if (-not (Ensure-ServiceRunning -Name $cloudflaredServiceName -TimeoutSeconds 45)) {
+                    Write-OpsLog -Message "Cloudflared service '$cloudflaredServiceName' failed to start during repair" -Level 'WARN' -LogFile $logFile
+                }
+                else {
+                    $cloudflaredStatus = 'Running'
+                }
+            }
+            else {
+                Write-OpsLog -Message 'Cloudflared service not found during tunnel repair attempt' -Level 'WARN' -LogFile $logFile
+            }
+
+            $tunnelHealthOk = Invoke-ReadinessCheck -Uri $TunnelHealthUrl -Retries $HealthRetries -DelaySeconds $HealthDelaySeconds -LogFile $logFile
+        }
+
+        if (-not $tunnelHealthOk) {
+            $rollbackOnFailure = $false
             throw "Tunnel health check failed after update: $TunnelHealthUrl"
         }
+
+        $tunnelHealthPassed = $true
+        Write-OpsLog -Message 'Tunnel readiness verified' -LogFile $logFile
     }
 
+    Write-OpsLog -Message "Verification summary: localHealth=$localHealthPassed; tunnelHealth=$tunnelHealthPassed; cloudflaredStatus=$cloudflaredStatus" -LogFile $logFile
     Write-OpsLog -Message 'Middleware update completed successfully' -LogFile $logFile
     exit 0
 }
 catch {
     Write-OpsLog -Message "Update failed: $($_.Exception.Message)" -Level 'ERROR' -LogFile $logFile
 
-    Write-OpsLog -Message 'Attempting rollback from latest backup' -Level 'WARN' -LogFile $logFile
-    try {
-        if (-not (Stop-ServiceSafe -Name $serviceInfo.Name -TimeoutSeconds 30)) {
-            Write-OpsLog -Message "Service '$($serviceInfo.Name)' did not stop cleanly before rollback" -Level 'WARN' -LogFile $logFile
-        }
+    if ($rollbackOnFailure -and $touchedInstall) {
+        Write-OpsLog -Message 'Attempting rollback from latest backup' -Level 'WARN' -LogFile $logFile
+        try {
+            if (-not (Stop-ServiceSafe -Name $serviceInfo.Name -TimeoutSeconds 30)) {
+                Write-OpsLog -Message "Service '$($serviceInfo.Name)' did not stop cleanly before rollback" -Level 'WARN' -LogFile $logFile
+            }
 
-        robocopy $backupDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-        $rollbackCode = $LASTEXITCODE
-        if ($rollbackCode -gt 7) {
-            throw "Rollback failed with robocopy code $rollbackCode"
-        }
+            robocopy $backupDir $installDir /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+            $rollbackCode = $LASTEXITCODE
+            if ($rollbackCode -gt 7) {
+                throw "Rollback failed with robocopy code $rollbackCode"
+            }
 
-        if (-not (Ensure-ServiceRunning -Name $serviceInfo.Name -TimeoutSeconds 45)) {
-            throw "Rollback restore succeeded but service '$($serviceInfo.Name)' failed to restart"
-        }
+            if (-not (Ensure-ServiceRunning -Name $serviceInfo.Name -TimeoutSeconds 45)) {
+                throw "Rollback restore succeeded but service '$($serviceInfo.Name)' failed to restart"
+            }
 
-        Write-OpsLog -Message 'Rollback completed; service restored' -Level 'WARN' -LogFile $logFile
+            Write-OpsLog -Message 'Rollback completed; service restored' -Level 'WARN' -LogFile $logFile
+        }
+        catch {
+            Write-OpsLog -Message "Rollback failed: $($_.Exception.Message)" -Level 'ERROR' -LogFile $logFile
+        }
     }
-    catch {
-        Write-OpsLog -Message "Rollback failed: $($_.Exception.Message)" -Level 'ERROR' -LogFile $logFile
+    else {
+        Write-OpsLog -Message "Skipping rollback (rollbackOnFailure=$rollbackOnFailure; touchedInstall=$touchedInstall)" -Level 'WARN' -LogFile $logFile
     }
 
     exit 1
