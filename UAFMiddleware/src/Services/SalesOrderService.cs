@@ -176,6 +176,8 @@ public class SalesOrderService : ISalesOrderService
             // Get the lines object - this is where we set line item values
             dynamic lines = salesOrder.oLines;
             _logger.LogInformation("Got oLines object");
+            var createdLines = new List<SalesOrderLineDetail>();
+            decimal createdOrderTotal = 0;
 
             // Add line items
             int lineNum = 0;
@@ -321,6 +323,38 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogWarning("Line write warning: {Error}", lineWriteError);
                 }
 
+                var createdItemCode = GetComStringValue(lines, "ItemCode$").Trim();
+                if (string.IsNullOrWhiteSpace(createdItemCode))
+                {
+                    createdItemCode = normalizedItemCode;
+                }
+
+                var createdDescription = GetComStringValue(lines, "ItemCodeDesc$");
+                var createdQuantity = GetComDecimalValue(lines, "QuantityOrdered") ?? line.Quantity;
+                var createdUnitPrice = GetComDecimalValue(lines, "UnitPrice");
+                var createdExtendedPrice = FirstDecimal(
+                    GetComDecimalValue(lines, "ExtensionAmt"),
+                    GetComDecimalValue(lines, "LineExtensionAmt"),
+                    GetComDecimalValue(lines, "ExtendedAmt"),
+                    createdUnitPrice.HasValue ? createdUnitPrice.Value * createdQuantity : (decimal?)null
+                );
+
+                if (createdExtendedPrice.HasValue)
+                {
+                    createdOrderTotal += createdExtendedPrice.Value;
+                }
+
+                createdLines.Add(new SalesOrderLineDetail
+                {
+                    LineNumber = lineNum,
+                    ItemCode = createdItemCode,
+                    Description = createdDescription,
+                    Quantity = createdQuantity,
+                    UnitPrice = createdUnitPrice,
+                    ExtendedPrice = createdExtendedPrice,
+                    WarehouseCode = GetComStringValue(lines, "WarehouseCode$")
+                });
+
                 _logger.LogInformation("Line {LineNum} setup complete", lineNum);
             }
 
@@ -349,11 +383,19 @@ public class SalesOrderService : ISalesOrderService
                 _logger.LogInformation(
                     "Successfully created sales order {SalesOrderNo} for customer {Customer}", 
                     nextOrderNo, request.CustomerNumber);
+
+                var orderTotal = FirstDecimal(
+                    GetComDecimalValue(salesOrder, "OrderTotal"),
+                    GetComDecimalValue(salesOrder, "TaxableSalesAmt"),
+                    createdOrderTotal > 0 ? createdOrderTotal : (decimal?)null
+                );
                 
                 return new SalesOrderResponse
                 {
                     Success = true,
                     SalesOrderNumber = nextOrderNo,
+                    OrderTotal = orderTotal,
+                    Lines = createdLines,
                     Message = $"Sales order {nextOrderNo} created successfully"
                 };
             }

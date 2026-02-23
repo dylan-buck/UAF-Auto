@@ -4,6 +4,8 @@ public class SalesOrderResponse
 {
     public bool Success { get; set; }
     public string? SalesOrderNumber { get; set; }
+    public decimal? OrderTotal { get; set; }
+    public List<SalesOrderLineDetail> Lines { get; set; } = new();
     public string? Message { get; set; }
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
@@ -63,4 +65,3 @@ public class ValidationError
     public string Field { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
 }
-
