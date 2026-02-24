@@ -323,19 +323,20 @@ public class SalesOrderService : ISalesOrderService
                     _logger.LogWarning("Line write warning: {Error}", lineWriteError);
                 }
 
-                var createdItemCode = GetComStringValue(lines, "ItemCode$").Trim();
+                var createdItemCode = GetComStringValue((object)lines, "ItemCode$").Trim();
                 if (string.IsNullOrWhiteSpace(createdItemCode))
                 {
                     createdItemCode = normalizedItemCode;
                 }
 
-                var createdDescription = GetComStringValue(lines, "ItemCodeDesc$");
-                var createdQuantity = GetComDecimalValue(lines, "QuantityOrdered") ?? line.Quantity;
-                var createdUnitPrice = GetComDecimalValue(lines, "UnitPrice");
-                var createdExtendedPrice = FirstDecimal(
-                    GetComDecimalValue(lines, "ExtensionAmt"),
-                    GetComDecimalValue(lines, "LineExtensionAmt"),
-                    GetComDecimalValue(lines, "ExtendedAmt"),
+                var createdDescription = GetComStringValue((object)lines, "ItemCodeDesc$");
+                decimal? createdQuantityRaw = GetComDecimalValue((object)lines, "QuantityOrdered");
+                decimal createdQuantity = createdQuantityRaw ?? line.Quantity;
+                decimal? createdUnitPrice = GetComDecimalValue((object)lines, "UnitPrice");
+                decimal? createdExtendedPrice = FirstDecimal(
+                    GetComDecimalValue((object)lines, "ExtensionAmt"),
+                    GetComDecimalValue((object)lines, "LineExtensionAmt"),
+                    GetComDecimalValue((object)lines, "ExtendedAmt"),
                     createdUnitPrice.HasValue ? createdUnitPrice.Value * createdQuantity : (decimal?)null
                 );
 
@@ -352,7 +353,7 @@ public class SalesOrderService : ISalesOrderService
                     Quantity = createdQuantity,
                     UnitPrice = createdUnitPrice,
                     ExtendedPrice = createdExtendedPrice,
-                    WarehouseCode = GetComStringValue(lines, "WarehouseCode$")
+                    WarehouseCode = GetComStringValue((object)lines, "WarehouseCode$")
                 });
 
                 _logger.LogInformation("Line {LineNum} setup complete", lineNum);
