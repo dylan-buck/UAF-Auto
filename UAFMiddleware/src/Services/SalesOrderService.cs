@@ -313,16 +313,7 @@ public class SalesOrderService : ISalesOrderService
                     lines.nSetValue("ItemCodeDesc$", line.Description);
                 }
 
-                // Write the line
-                object lineWriteResultObj = lines.nWrite();
-                int lineWriteResult = ConvertComResult(lineWriteResultObj);
-                _logger.LogInformation("oLines.nWrite returned: {Result}", lineWriteResult);
-                if (lineWriteResult == 0)
-                {
-                    string lineWriteError = TryGetLastError(lines);
-                    _logger.LogWarning("Line write warning: {Error}", lineWriteError);
-                }
-
+                // Capture line values before nWrite; after write the cursor may move.
                 var createdItemCode = GetComStringValue((object)lines, "ItemCode$").Trim();
                 if (string.IsNullOrWhiteSpace(createdItemCode))
                 {
@@ -331,7 +322,9 @@ public class SalesOrderService : ISalesOrderService
 
                 var createdDescription = GetComStringValue((object)lines, "ItemCodeDesc$");
                 decimal? createdQuantityRaw = GetComDecimalValue((object)lines, "QuantityOrdered");
-                decimal createdQuantity = createdQuantityRaw ?? line.Quantity;
+                decimal createdQuantity = (createdQuantityRaw.HasValue && createdQuantityRaw.Value > 0)
+                    ? createdQuantityRaw.Value
+                    : line.Quantity;
                 decimal? createdUnitPrice = GetComDecimalValue((object)lines, "UnitPrice");
                 decimal? createdExtendedPrice = FirstDecimal(
                     GetComDecimalValue((object)lines, "ExtensionAmt"),
@@ -355,6 +348,16 @@ public class SalesOrderService : ISalesOrderService
                     ExtendedPrice = createdExtendedPrice,
                     WarehouseCode = GetComStringValue((object)lines, "WarehouseCode$")
                 });
+
+                // Write the line
+                object lineWriteResultObj = lines.nWrite();
+                int lineWriteResult = ConvertComResult(lineWriteResultObj);
+                _logger.LogInformation("oLines.nWrite returned: {Result}", lineWriteResult);
+                if (lineWriteResult == 0)
+                {
+                    string lineWriteError = TryGetLastError(lines);
+                    _logger.LogWarning("Line write warning: {Error}", lineWriteError);
+                }
 
                 _logger.LogInformation("Line {LineNum} setup complete", lineNum);
             }
