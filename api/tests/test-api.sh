@@ -4,7 +4,13 @@
 # Requires: curl, jq (for JSON formatting)
 
 API_URL="${API_URL:-http://localhost:3000}"
-API_KEY="${API_KEY:-your_api_key_here}"
+API_KEY="${API_KEY:-}"
+
+if [ -z "${API_KEY}" ]; then
+  echo "Set API_KEY before running this script."
+  echo "Example: API_KEY=your_real_key ./tests/test-api.sh"
+  exit 1
+fi
 
 echo "🧪 Testing UAF Sage API"
 echo "========================"
@@ -61,4 +67,3 @@ if [ "$JOB_ID" != "null" ] && [ -n "$JOB_ID" ]; then
 fi
 
 echo "✅ Tests completed"
-

@@ -4,13 +4,13 @@
 # Example setup:
 #   cloudflared tunnel login
 #   cloudflared tunnel create uaf-middleware
-#   cloudflared tunnel route dns uaf-middleware sage.uaf-automation.uk
+#   cloudflared tunnel route dns uaf-middleware <PUBLIC_HOSTNAME>
 #   cloudflared service install --config C:\UAF-Auto\.cloudflared\config.yml
 
 tunnel: <TUNNEL-ID>
 credentials-file: C:\Users\<WINDOWS-USER>\.cloudflared\<TUNNEL-ID>.json
 
 ingress:
-  - hostname: sage.uaf-automation.uk
+  - hostname: <PUBLIC_HOSTNAME>
     service: http://localhost:3000
   - service: http_status:404

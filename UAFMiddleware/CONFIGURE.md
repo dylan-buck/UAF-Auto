@@ -60,4 +60,4 @@ check-status.bat
 
 Manual health checks:
 - Local: `http://localhost:3000/health/ready`
-- Tunnel: `https://sage.uaf-automation.uk/health/ready`
+- Tunnel: `https://<public-health-host>/health/ready`

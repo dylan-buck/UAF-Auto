@@ -6,6 +6,15 @@ import logger from '../utils/logger.js';
  */
 export const authenticate = (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
+
+  if (!config.apiKey) {
+    logger.error('API key authentication is not configured');
+
+    return res.status(503).json({
+      error: 'Service unavailable',
+      message: 'API authentication is not configured',
+    });
+  }
   
   if (!apiKey) {
     logger.warn('Request without API key', {
@@ -37,4 +46,3 @@ export const authenticate = (req, res, next) => {
 };
 
 export default authenticate;
-

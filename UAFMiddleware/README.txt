@@ -80,7 +80,7 @@ Local check:
   http://localhost:3000/health/ready
 
 Tunnel check:
-  https://sage.uaf-automation.uk/health/ready
+  https://<public-health-host>/health/ready
 
 
 LOGS
@@ -101,7 +101,7 @@ TROUBLESHOOTING QUICK CHECK
 
 SUPPORT
 -------
-Contact: Dylan Buck
-Project: UAF Air Filter Distribution
+Contact: Repository maintainer or owning team
+Project: Sage 100 middleware
 
 ============================================

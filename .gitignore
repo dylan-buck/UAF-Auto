@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.production
+.cloudflared/config.yml
+.cloudflared/*.json
 *.local.json
 appsettings.Local.json
 appsettings.Production.json

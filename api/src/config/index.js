@@ -11,7 +11,7 @@ dotenv.config({ path: join(__dirname, '../../../.env') });
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.API_PORT, 10) || 3000,
-  apiKey: process.env.API_KEY || 'your_api_key_here',
+  apiKey: process.env.API_KEY || '',
   
   boi: {
     serviceUrl: process.env.BOI_SERVICE_URL || 'http://localhost:5000',
@@ -50,4 +50,3 @@ if (missing.length > 0) {
 }
 
 export default config;
-

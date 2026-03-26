@@ -1,7 +1,7 @@
 import type { POHistoryEntry } from '../types';
 
 // n8n webhook URL for fetching PO history
-const HISTORY_API_URL = import.meta.env.VITE_N8N_HISTORY_URL || 'https://dbuck.app.n8n.cloud/webhook/po-history';
+const HISTORY_API_URL = import.meta.env.VITE_N8N_HISTORY_URL?.trim() ?? '';
 
 export interface HistoryResponse {
   success: boolean;
@@ -10,24 +10,23 @@ export interface HistoryResponse {
 }
 
 export async function fetchPOHistory(): Promise<POHistoryEntry[]> {
-  try {
-    const response = await fetch(HISTORY_API_URL);
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch history: ${response.status}`);
-    }
-
-    const result: HistoryResponse = await response.json();
-
-    if (!result.success) {
-      throw new Error('API returned unsuccessful response');
-    }
-
-    return result.data;
-  } catch (error) {
-    console.error('[History API] Error fetching history:', error);
-    return [];
+  if (!HISTORY_API_URL) {
+    throw new Error('PO history endpoint is not configured. Set VITE_N8N_HISTORY_URL.');
   }
+
+  const response = await fetch(HISTORY_API_URL);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch history: ${response.status}`);
+  }
+
+  const result: HistoryResponse = await response.json();
+
+  if (!result.success) {
+    throw new Error('API returned unsuccessful response');
+  }
+
+  return result.data;
 }
 
 // localStorage key for caching history

@@ -1,13 +1,13 @@
 import type { ProcessingResult, ProcessingStage } from '../types';
 
 // n8n webhook URL
-const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://dbuck.app.n8n.cloud/webhook/po-upload';
+const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL?.trim() ?? '';
 
 // Toggle between mock and real API
 const USE_MOCK = false;
 
 // Debug: log which mode we're in
-console.log('[PO Upload] Mode: LIVE | URL:', N8N_WEBHOOK_URL);
+console.log('[PO Upload] Mode: LIVE | Endpoint configured:', Boolean(N8N_WEBHOOK_URL));
 
 export interface UploadOptions {
   onStageChange?: (stage: ProcessingStage) => void;
@@ -22,6 +22,13 @@ export async function uploadPODocument(
   if (USE_MOCK) {
     console.log('[PO Upload] Using MOCK path');
     return mockUploadPODocument(file, options);
+  }
+
+  if (!N8N_WEBHOOK_URL) {
+    return {
+      status: 'error',
+      message: 'PO upload endpoint is not configured. Set VITE_N8N_WEBHOOK_URL.',
+    };
   }
 
   console.log('[PO Upload] Using LIVE path, sending to:', N8N_WEBHOOK_URL);

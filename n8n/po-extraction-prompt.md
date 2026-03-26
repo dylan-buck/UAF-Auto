@@ -89,6 +89,81 @@ The extracted data maps to the middleware API as follows:
 }
 ```
 
+## SKU Transformation Rule (Automation Layer)
+
+Apply this in n8n (Set or Code node) before creating the sales order payload.
+
+Rule precedence:
+1. If line item description contains `Poly` (case-insensitive), keep full SKU.
+2. Else if description contains `Merv 10` (case-insensitive), remove leading `FT` only when SKU starts with `FT`.
+3. Else keep SKU unchanged.
+
+Edge-case defaults:
+- If both `Poly` and `Merv 10` are present: `Poly` wins (keep full SKU).
+- If `Merv 10` is present but SKU does not start with `FT`: leave unchanged.
+- Only remove a leading `FT`; do not alter interior `FT`.
+
+### n8n Code Node Snippet
+
+```javascript
+const ENABLE_UAF_SKU_TRANSFORM = true;
+
+function normalizeText(value) {
+  return String(value || "").toLowerCase();
+}
+
+function trimSku(value) {
+  return String(value || "").trim();
+}
+
+function startsWithFt(sku) {
+  return sku.toUpperCase().startsWith("FT");
+}
+
+function transformSku(itemCode, description) {
+  const originalItemCode = trimSku(itemCode);
+  const desc = normalizeText(description);
+  const hasPoly = desc.includes("poly");
+  const hasMerv10 = desc.includes("merv 10");
+
+  if (hasPoly) {
+    return { originalItemCode, transformedItemCode: originalItemCode, transformRuleApplied: "POLY_KEEP_FULL_SKU" };
+  }
+
+  if (hasMerv10) {
+    if (startsWithFt(originalItemCode)) {
+      return { originalItemCode, transformedItemCode: originalItemCode.slice(2), transformRuleApplied: "MERV10_DROP_LEADING_FT" };
+    }
+    return { originalItemCode, transformedItemCode: originalItemCode, transformRuleApplied: "MERV10_NO_FT_PREFIX_NO_CHANGE" };
+  }
+
+  return { originalItemCode, transformedItemCode: originalItemCode, transformRuleApplied: "NONE" };
+}
+
+return $input.all().map((item) => {
+  const json = item.json || {};
+  const lineItems = Array.isArray(json.lineItems) ? json.lineItems : [];
+
+  if (!ENABLE_UAF_SKU_TRANSFORM) {
+    return { json };
+  }
+
+  return {
+    json: {
+      ...json,
+      lineItems: lineItems.map((line) => {
+        const transform = transformSku(line.itemCode, line.description);
+        return {
+          ...line,
+          itemCode: transform.transformedItemCode,
+          skuTransform: transform, // optional audit field
+        };
+      }),
+    },
+  };
+});
+```
+
 ## Special Instruction Keywords to Flag
 
 These phrases in the PO should trigger MANUAL_REVIEW:
@@ -105,6 +180,6 @@ These phrases in the PO should trigger MANUAL_REVIEW:
 1. **Email Trigger** → receives email with PDF attachment
 2. **Extract from File** → extracts PDF content as text
 3. **AI Node (Claude)** → uses prompt above to parse into JSON
-4. **Set Node** → transforms AI output for API call
+4. **Set/Code Node** → transforms AI output for API call (includes SKU rule above)
 5. **HTTP Request** → calls customer resolution API
 6. **Switch Node** → branches based on recommendation

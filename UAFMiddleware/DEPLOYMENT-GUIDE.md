@@ -7,7 +7,7 @@ This guide covers deployment and operations on Comp-08.
 - .NET 10 runtime (and SDK if building on host)
 - Sage workstation components / ProvideX
 - cloudflared installed on host
-- Access to Sage path `\\uaf-erp\Sage Premium 2022\MAS90\Home`
+- Access to the configured Sage path for the target environment
 
 ## Package Build
 From repo `UAFMiddleware/`:

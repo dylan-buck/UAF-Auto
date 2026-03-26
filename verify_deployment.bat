@@ -5,6 +5,18 @@ echo ========================================================
 echo UAF Auto - Deployment Verification Script
 echo ========================================================
 
+if exist .env (
+    for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
+        if /I "%%A"=="API_KEY" set API_KEY=%%B
+    )
+)
+
+if "%API_KEY%"=="" (
+    echo [ERROR] API_KEY is not set. Add it to .env or the current shell before running this script.
+    pause
+    exit /b 1
+)
+
 REM 1. Check Docker
 docker info >nul 2>&1
 if %errorlevel% neq 0 (
@@ -56,7 +68,7 @@ REM Note: You might need to adjust the customer number and item code to valid on
 REM Creating a temporary json file for curl
 echo %JSON_BODY% > test_order.json
 
-for /f "tokens=*" %%a in ('curl -s -X POST -H "Content-Type: application/json" -H "X-API-Key: dev_key_12345" -d @test_order.json http://localhost:3000/api/v1/sales-orders') do set RESPONSE=%%a
+for /f "tokens=*" %%a in ('curl -s -X POST -H "Content-Type: application/json" -H "X-API-Key: %API_KEY%" -d @test_order.json http://localhost:3000/api/v1/sales-orders') do set RESPONSE=%%a
 echo Response: !RESPONSE!
 
 REM Extract Job ID (simple string parsing for batch)
