@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting.WindowsServices;
 using Serilog;
 using Serilog.Events;
 using UAFMiddleware.Configuration;
+using UAFMiddleware.Security;
 using UAFMiddleware.Services;
 
 // Configure Serilog early for startup logging
@@ -51,8 +52,14 @@ try
     // Add services
     builder.Services.AddSingleton<IProvideXSessionManager, ProvideXSessionManager>();
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+    builder.Services.AddScoped<ISalesOrderQueryService, SalesOrderQueryService>();
     builder.Services.AddScoped<ICustomerService, CustomerService>();
+    builder.Services.AddScoped<ICustomerAccountService, CustomerAccountService>();
     builder.Services.AddScoped<IInventoryService, InventoryService>();
+    builder.Services.AddScoped<IItemService, ItemService>();
+    builder.Services.AddScoped<IVendorService, VendorService>();
+    builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
+    builder.Services.AddScoped<IReferenceDataService, ReferenceDataService>();
     builder.Services.AddHostedService<HealthMonitorService>();
 
     // Add controllers
@@ -114,19 +121,41 @@ static async Task ApiKeyAuthenticationMiddleware(HttpContext context, Func<Task>
     var apiConfig = context.RequestServices.GetRequiredService<IConfiguration>()
         .GetSection("Api").Get<ApiConfiguration>();
 
-    if (string.IsNullOrEmpty(apiConfig?.ApiKey))
+    if (apiConfig == null ||
+        (string.IsNullOrEmpty(apiConfig.ApiKey) && (apiConfig.ApiKeys?.Count ?? 0) == 0))
     {
+        context.Items["ApiScopeResult"] = new ApiScopeResult
+        {
+            IsAuthenticated = true,
+            ClientName = "development",
+            Scopes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ApiScopes.Read,
+                ApiScopes.Create,
+                ApiScopes.Modify,
+                ApiScopes.Finance,
+                ApiScopes.Admin
+            }
+        };
         await next();
         return;
     }
 
-    if (!context.Request.Headers.TryGetValue("X-API-Key", out var providedKey) ||
-        providedKey != apiConfig.ApiKey)
+    if (!context.Request.Headers.TryGetValue("X-API-Key", out var providedKey))
     {
         context.Response.StatusCode = 401;
         await context.Response.WriteAsJsonAsync(new { error = "Invalid or missing API key" });
         return;
     }
 
+    var scopeResult = ApiScopePolicy.ResolveScopes(apiConfig, providedKey.ToString());
+    if (!scopeResult.IsAuthenticated)
+    {
+        context.Response.StatusCode = 401;
+        await context.Response.WriteAsJsonAsync(new { error = "Invalid or missing API key" });
+        return;
+    }
+
+    context.Items["ApiScopeResult"] = scopeResult;
     await next();
 }

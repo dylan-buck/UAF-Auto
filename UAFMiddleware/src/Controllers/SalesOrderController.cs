@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using UAFMiddleware.Models;
+using UAFMiddleware.Security;
 using UAFMiddleware.Services;
 
 namespace UAFMiddleware.Controllers;
@@ -9,13 +10,16 @@ namespace UAFMiddleware.Controllers;
 public class SalesOrderController : ControllerBase
 {
     private readonly ISalesOrderService _salesOrderService;
+    private readonly ISalesOrderQueryService _salesOrderQueryService;
     private readonly ILogger<SalesOrderController> _logger;
 
     public SalesOrderController(
         ISalesOrderService salesOrderService,
+        ISalesOrderQueryService salesOrderQueryService,
         ILogger<SalesOrderController> logger)
     {
         _salesOrderService = salesOrderService;
+        _salesOrderQueryService = salesOrderQueryService;
         _logger = logger;
     }
 
@@ -23,6 +27,7 @@ public class SalesOrderController : ControllerBase
     /// Create a new sales order in Sage 100
     /// </summary>
     [HttpPost]
+    [RequireApiScope(ApiScopes.Create)]
     public async Task<ActionResult<SalesOrderResponse>> CreateSalesOrder(
         [FromBody] SalesOrderRequest request,
         CancellationToken cancellationToken)
@@ -89,9 +94,34 @@ public class SalesOrderController : ControllerBase
     }
 
     /// <summary>
+    /// Search open sales orders by customer, customer PO, order date, or status.
+    /// </summary>
+    [HttpGet("search")]
+    [RequireApiScope(ApiScopes.Read)]
+    public async Task<ActionResult<SalesOrderSearchResponse>> SearchSalesOrders(
+        [FromQuery] string? customerNumber,
+        [FromQuery] string? poNumber,
+        [FromQuery] string? dateFrom,
+        [FromQuery] string? status,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _salesOrderQueryService.SearchSalesOrdersAsync(
+            customerNumber,
+            poNumber,
+            dateFrom,
+            status,
+            Math.Min(limit, 100),
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Get Sage-confirmed details for an existing sales order.
     /// </summary>
     [HttpGet("{salesOrderNumber}/details")]
+    [RequireApiScope(ApiScopes.Read)]
     public async Task<ActionResult<SalesOrderDetailsResponse>> GetSalesOrderDetails(
         string salesOrderNumber,
         CancellationToken cancellationToken)
@@ -144,6 +174,7 @@ public class SalesOrderController : ControllerBase
     /// Test endpoint - verifies the API is working (does not create an order)
     /// </summary>
     [HttpGet("test")]
+    [RequireApiScope(ApiScopes.Read)]
     public ActionResult<object> Test()
     {
         return Ok(new

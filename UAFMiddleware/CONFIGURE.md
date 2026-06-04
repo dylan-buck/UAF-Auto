@@ -31,6 +31,8 @@ setx Sage__Company "TST"
 setx Api__ApiKey "your_secret_api_key"
 ```
 
+`Api__ApiKey` is the legacy full-access key. Prefer scoped keys for new clients.
+
 ## Local Settings File
 Create `appsettings.Local.json` next to `UAFMiddleware.exe`:
 
@@ -42,10 +44,34 @@ Create `appsettings.Local.json` next to `UAFMiddleware.exe`:
     "Company": "TST"
   },
   "Api": {
-    "ApiKey": "your_secret_api_key"
+    "ApiKey": "your_legacy_full_access_key",
+    "ReadOnlyMode": false,
+    "ApiKeys": {
+      "mcp_readonly_secret": {
+        "Name": "mcp-readonly",
+        "Scopes": [ "read" ]
+      },
+      "automation_create_secret": {
+        "Name": "po-automation",
+        "Scopes": [ "read", "create" ]
+      },
+      "finance_read_secret": {
+        "Name": "finance-read",
+        "Scopes": [ "read", "finance" ]
+      }
+    }
   }
 }
 ```
+
+Available scopes:
+- `read`: non-financial lookup and query endpoints.
+- `create`: create workflow endpoints such as sales-order creation.
+- `modify`: future update/cancel endpoints.
+- `finance`: financial read endpoints such as customer account summaries.
+- `admin`: future catalog/admin endpoints.
+
+Set `"ReadOnlyMode": true` to force every configured key to read-only behavior. This is useful for an MCP deployment that must not create or modify Sage records.
 
 ## Cloudflared Configuration
 - Runtime config path on host: `C:\UAF-Auto\.cloudflared\config.yml`

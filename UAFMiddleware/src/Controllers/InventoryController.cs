@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using UAFMiddleware.Models;
+using UAFMiddleware.Security;
 using UAFMiddleware.Services;
 
 namespace UAFMiddleware.Controllers;
@@ -25,6 +26,7 @@ public class InventoryController : ControllerBase
     /// </summary>
     /// <param name="request">Request containing list of item codes to validate</param>
     [HttpPost("validate")]
+    [RequireApiScope(ApiScopes.Read)]
     public async Task<ActionResult<ItemValidationResult>> ValidateItemCodes(
         [FromBody] ItemValidationRequest request,
         CancellationToken cancellationToken = default)
@@ -69,6 +71,7 @@ public class InventoryController : ControllerBase
     /// </summary>
     /// <param name="itemCode">The item code to check</param>
     [HttpGet("check/{itemCode}")]
+    [RequireApiScope(ApiScopes.Read)]
     public async Task<ActionResult<object>> CheckItemExists(
         string itemCode,
         CancellationToken cancellationToken = default)
@@ -109,6 +112,7 @@ public class InventoryController : ControllerBase
     /// Test endpoint - verifies the Inventory API is working
     /// </summary>
     [HttpGet("test")]
+    [RequireApiScope(ApiScopes.Read)]
     public ActionResult<object> Test()
     {
         return Ok(new

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using UAFMiddleware.Models;
+using UAFMiddleware.Security;
 using UAFMiddleware.Services;
 
 namespace UAFMiddleware.Controllers;
@@ -9,13 +10,16 @@ namespace UAFMiddleware.Controllers;
 public class CustomerController : ControllerBase
 {
     private readonly ICustomerService _customerService;
+    private readonly ICustomerAccountService _customerAccountService;
     private readonly ILogger<CustomerController> _logger;
 
     public CustomerController(
         ICustomerService customerService,
+        ICustomerAccountService customerAccountService,
         ILogger<CustomerController> logger)
     {
         _customerService = customerService;
+        _customerAccountService = customerAccountService;
         _logger = logger;
     }
 
@@ -29,6 +33,7 @@ public class CustomerController : ControllerBase
     /// <param name="phone">Phone number</param>
     /// <param name="limit">Maximum results (default 20)</param>
     [HttpGet("search")]
+    [RequireApiScope(ApiScopes.Read)]
     public async Task<ActionResult<CustomerSearchResponse>> SearchCustomers(
         [FromQuery] string? name,
         [FromQuery] string? address,
@@ -89,6 +94,7 @@ public class CustomerController : ControllerBase
     /// </summary>
     /// <param name="customerNumber">Customer number in format "01-D3375"</param>
     [HttpGet("{customerNumber}")]
+    [RequireApiScope(ApiScopes.Read)]
     public async Task<ActionResult<CustomerDto>> GetCustomer(
         string customerNumber,
         CancellationToken cancellationToken = default)
@@ -121,9 +127,37 @@ public class CustomerController : ControllerBase
     }
 
     /// <summary>
+    /// Get finance-sensitive customer account summary facts.
+    /// Requires the finance API scope.
+    /// </summary>
+    [HttpGet("{customerNumber}/account-summary")]
+    [RequireApiScope(ApiScopes.Read)]
+    [RequireApiScope(ApiScopes.Finance)]
+    public async Task<ActionResult<CustomerAccountSummaryResponse>> GetAccountSummary(
+        string customerNumber,
+        [FromQuery] int openInvoiceLimit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var summary = await _customerAccountService.GetAccountSummaryAsync(
+            customerNumber,
+            Math.Min(openInvoiceLimit, 100),
+            cancellationToken);
+
+        if (summary == null)
+        {
+            return NotFound(CreateErrorResponse(
+                $"Customer '{customerNumber}' not found",
+                "CUSTOMER_NOT_FOUND"));
+        }
+
+        return Ok(summary);
+    }
+
+    /// <summary>
     /// Validate if a ship-to address matches the customer's default ship-to
     /// </summary>
     [HttpPost("{customerNumber}/validate-shipto")]
+    [RequireApiScope(ApiScopes.Read)]
     public async Task<ActionResult<ValidateShipToResponse>> ValidateShipTo(
         string customerNumber,
         [FromBody] ValidateShipToRequest request,
@@ -161,6 +195,7 @@ public class CustomerController : ControllerBase
     /// Returns matching facts and confidence only; business pass/fail policy belongs in automation.
     /// </summary>
     [HttpPost("resolve")]
+    [RequireApiScope(ApiScopes.Read)]
     public async Task<ActionResult<CustomerResolutionResponse>> ResolveCustomer(
         [FromBody] CustomerResolutionRequest request,
         CancellationToken cancellationToken = default)
@@ -206,6 +241,7 @@ public class CustomerController : ControllerBase
     /// Test endpoint - verifies the Customer API is working
     /// </summary>
     [HttpGet("test")]
+    [RequireApiScope(ApiScopes.Read)]
     public ActionResult<object> Test()
     {
         return Ok(new
