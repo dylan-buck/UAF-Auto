@@ -61,7 +61,10 @@ if (-not (Test-Path $wrapperPath)) {
   }
 }
 
-$entryPoint = Join-Path $InstallPath "dist\index.js"
+$entryPoint = Join-Path $InstallPath "dist\src\index.js"
+if (-not (Test-Path $entryPoint)) {
+  throw "Gateway entrypoint not found at $entryPoint. Run npm run build and confirm TypeScript compiled successfully."
+}
 
 function Escape-Xml([string]$Value) {
   return [System.Security.SecurityElement]::Escape($Value)
