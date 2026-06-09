@@ -23,6 +23,7 @@ test("loadConfig supports enterprise env aliases and optional create/finance too
     UAF_API_KEY_FINANCE: "finance",
     MCP_HOST: "localhost",
     MCP_PORT: "8788",
+    MCP_ALLOWED_ORIGINS: "https://mcp.example.com",
     ENABLE_CREATE_TOOLS: "true",
     ENABLE_FINANCE_TOOLS: "1"
   });
@@ -30,6 +31,7 @@ test("loadConfig supports enterprise env aliases and optional create/finance too
   assert.equal(config.host, "localhost");
   assert.equal(config.port, 8788);
   assert.equal(config.sageApiUrl, "http://localhost:3001");
+  assert.deepEqual(config.allowedOrigins, ["https://mcp.example.com"]);
   assert.deepEqual(config.keys, { read: "read", create: "create", finance: "finance" });
   assert.deepEqual(enabledForTest(config).slice(-2), [
     "sage_get_customer_account_summary",

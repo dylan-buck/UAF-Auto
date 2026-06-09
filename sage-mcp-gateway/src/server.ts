@@ -14,6 +14,8 @@ export function createGatewayApp(config: GatewayConfig, client = new UafClient({
 })): Express {
   const app = createMcpExpressApp({ host: config.host, allowedHosts: config.allowedHosts });
 
+  app.use(validateOrigin(config));
+
   app.get("/healthz", (_req, res) => {
     res.json({ ok: true, service: "sage-mcp-gateway" });
   });
@@ -79,6 +81,18 @@ async function handleMcpRequest(config: GatewayConfig, client: UafClient, req: R
       });
     }
   }
+}
+
+export function validateOrigin(config: GatewayConfig) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const origin = req.header("origin");
+    if (!origin || config.allowedOrigins.length === 0 || config.allowedOrigins.includes(origin)) {
+      next();
+      return;
+    }
+
+    res.status(403).json({ error: "Origin not allowed" });
+  };
 }
 
 export function requireBearerSecret(config: GatewayConfig) {

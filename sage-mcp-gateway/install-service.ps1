@@ -6,6 +6,7 @@ param(
   [string]$McpHost = "127.0.0.1",
   [int]$McpPort = 8787,
   [string]$AllowedHosts = "127.0.0.1,localhost",
+  [string]$AllowedOrigins = "",
   [string]$SageApiUrl = "http://localhost:3000",
   [Parameter(Mandatory = $true)]
   [string]$ReadApiKey,
@@ -70,6 +71,7 @@ $envXml = @(
   @{ name = "MCP_HOST"; value = $McpHost },
   @{ name = "MCP_PORT"; value = "$McpPort" },
   @{ name = "MCP_ALLOWED_HOSTS"; value = $AllowedHosts },
+  @{ name = "MCP_ALLOWED_ORIGINS"; value = $AllowedOrigins },
   @{ name = "UAF_SAGE_API_URL"; value = $SageApiUrl },
   @{ name = "UAF_SAGE_READ_API_KEY"; value = $ReadApiKey },
   @{ name = "UAF_SAGE_CREATE_API_KEY"; value = $CreateApiKey },

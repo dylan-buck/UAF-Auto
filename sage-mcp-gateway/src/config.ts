@@ -2,6 +2,7 @@ export interface GatewayConfig {
   host: string;
   port: number;
   allowedHosts: string[];
+  allowedOrigins: string[];
   sharedSecret?: string;
   sageApiUrl: string;
   timeoutMs: number;
@@ -73,6 +74,7 @@ export function loadConfig(env: Env = process.env): GatewayConfig {
     host,
     port,
     allowedHosts: parseCsv(env.MCP_ALLOWED_HOSTS, ["127.0.0.1", "localhost"]),
+    allowedOrigins: parseCsv(env.MCP_ALLOWED_ORIGINS, []),
     sharedSecret: envFirst(env, ["MCP_SHARED_SECRET", "MCP_BEARER_TOKEN"]),
     sageApiUrl: envFirst(env, ["UAF_SAGE_API_URL", "UAF_BASE_URL", "SAGE_MIDDLEWARE_URL"]) ?? "http://localhost:3000",
     timeoutMs: envInt(env, "UAF_SAGE_TIMEOUT_MS", 30000),

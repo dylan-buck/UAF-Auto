@@ -68,6 +68,7 @@ Authorization: Bearer <MCP_SHARED_SECRET>
 | `MCP_HOST` | `127.0.0.1` | Keep localhost for Cloudflare Tunnel deployment. |
 | `MCP_PORT` | `8787` | Local gateway port. |
 | `MCP_ALLOWED_HOSTS` | `127.0.0.1,localhost` | Host header allow list for DNS rebinding protection. Include the Cloudflare public hostname or set `httpHostHeader: localhost` in `cloudflared`. |
+| `MCP_ALLOWED_ORIGINS` | unset | Optional Origin allow list. Set to the public MCP origin, for example `https://mcp.company.com`. Requests with no Origin header are allowed. |
 | `MCP_SHARED_SECRET` | unset | Optional direct bearer auth. Use Cloudflare Access publicly. |
 | `UAF_SAGE_API_URL` | `http://localhost:3000` | Existing middleware base URL. |
 | `UAF_SAGE_READ_API_KEY` | unset | Required read-scoped middleware key. |
@@ -90,6 +91,7 @@ cd C:\UAF-Auto\sage-mcp-gateway
 .\install-service.ps1 `
   -ReadApiKey "<read-key>" `
   -AllowedHosts "127.0.0.1,localhost,mcp.company.com" `
+  -AllowedOrigins "https://mcp.company.com" `
   -McpSharedSecret "<long-random-secret>"
 ```
 

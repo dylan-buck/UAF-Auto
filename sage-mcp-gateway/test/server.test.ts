@@ -27,6 +27,33 @@ test("gateway health and bearer auth work", async () => {
   }
 });
 
+test("gateway rejects disallowed browser origins", async () => {
+  const config = loadConfig({
+    UAF_SAGE_READ_API_KEY: "read",
+    MCP_ALLOWED_ORIGINS: "https://mcp.example.com"
+  });
+  const app = createGatewayApp(config, fakeClient());
+  const server = app.listen(0, "127.0.0.1");
+
+  await onceListening(server);
+  const address = server.address();
+  assert(address && typeof address === "object");
+
+  try {
+    const blocked = await fetch(`http://127.0.0.1:${address.port}/healthz`, {
+      headers: { Origin: "https://evil.example.com" }
+    });
+    assert.equal(blocked.status, 403);
+
+    const allowed = await fetch(`http://127.0.0.1:${address.port}/healthz`, {
+      headers: { Origin: "https://mcp.example.com" }
+    });
+    assert.equal(allowed.status, 200);
+  } finally {
+    server.close();
+  }
+});
+
 test("gateway exposes enabled tools over real Streamable HTTP MCP", async () => {
   const config = loadConfig({
     UAF_SAGE_READ_API_KEY: "read",
