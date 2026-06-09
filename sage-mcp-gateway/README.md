@@ -81,6 +81,8 @@ The aliases `UAF_BASE_URL`, `UAF_API_KEY_READ`, `UAF_API_KEY_CREATE`, and `UAF_A
 
 ## Windows Service
 
+The installer uses WinSW to wrap Node as a real Windows service. If the server has no internet access, download `WinSW-x64.exe` from the WinSW GitHub releases page first and pass `-WinSWPath`.
+
 Run PowerShell as Administrator:
 
 ```powershell
