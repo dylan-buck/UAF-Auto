@@ -104,6 +104,7 @@ public class SalesOrderController : ControllerBase
         [FromQuery] string? dateFrom,
         [FromQuery] string? status,
         [FromQuery] int limit = 20,
+        [FromQuery] int offset = 0,
         CancellationToken cancellationToken = default)
     {
         var result = await _salesOrderQueryService.SearchSalesOrdersAsync(
@@ -111,7 +112,8 @@ public class SalesOrderController : ControllerBase
             poNumber,
             dateFrom,
             status,
-            Math.Min(limit, 100),
+            Math.Clamp(limit, 1, 100),
+            Math.Max(offset, 0),
             cancellationToken);
 
         return Ok(result);

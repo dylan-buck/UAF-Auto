@@ -4,7 +4,7 @@ namespace UAFMiddleware.Services;
 
 public class PurchaseOrderService : SageReadServiceBase, IPurchaseOrderService
 {
-    private const int MaxScan = 1500;
+    private const int MaxScan = 25000;
 
     public PurchaseOrderService(IProvideXSessionManager sessionManager, ILogger<PurchaseOrderService> logger)
         : base(sessionManager, logger)
@@ -31,21 +31,28 @@ public class PurchaseOrderService : SageReadServiceBase, IPurchaseOrderService
         string? status,
         string? dateFrom,
         int limit,
+        int offset = 0,
         CancellationToken cancellationToken = default)
     {
         var safeLimit = Math.Clamp(limit, 1, 100);
+        var safeOffset = Math.Max(offset, 0);
         var parsedVendor = ParseVendorNumber(vendorNumber);
 
         return WithSageObjectAsync("PO_PurchaseOrder_svc", purchaseOrderSvc =>
         {
-            var response = new PurchaseOrderSearchResponse();
+            var response = new PurchaseOrderSearchResponse
+            {
+                Limit = safeLimit,
+                Offset = safeOffset
+            };
             if (!MoveFirst(purchaseOrderSvc))
             {
                 return response;
             }
 
             var hasMore = true;
-            while (hasMore && response.PurchaseOrders.Count < safeLimit && response.ScannedCount < MaxScan)
+            var totalMatches = 0;
+            while (hasMore && response.ScannedCount < MaxScan)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 response.ScannedCount++;
@@ -53,13 +60,20 @@ public class PurchaseOrderService : SageReadServiceBase, IPurchaseOrderService
                 var purchaseOrder = ExtractPurchaseOrder(purchaseOrderSvc);
                 if (MatchesPurchaseOrder(purchaseOrder, parsedVendor, orderType, status, dateFrom))
                 {
-                    response.PurchaseOrders.Add(purchaseOrder);
+                    totalMatches++;
+                    if (totalMatches > safeOffset && response.PurchaseOrders.Count < safeLimit)
+                    {
+                        response.PurchaseOrders.Add(purchaseOrder);
+                    }
                 }
 
                 hasMore = MoveNext(purchaseOrderSvc);
             }
 
-            response.TotalCount = response.PurchaseOrders.Count;
+            response.TotalCount = totalMatches;
+            response.ReturnedCount = response.PurchaseOrders.Count;
+            response.HasMore = hasMore || totalMatches > safeOffset + response.PurchaseOrders.Count;
+            response.ScanLimitReached = hasMore && response.ScannedCount >= MaxScan;
             LogScanLimit("PO_PurchaseOrder_svc", response.ScannedCount, MaxScan);
             return response;
         }, cancellationToken);

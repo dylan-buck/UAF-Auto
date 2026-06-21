@@ -4,7 +4,7 @@ namespace UAFMiddleware.Services;
 
 public class SalesOrderQueryService : SageReadServiceBase, ISalesOrderQueryService
 {
-    private const int MaxScan = 1500;
+    private const int MaxScan = 25000;
 
     public SalesOrderQueryService(IProvideXSessionManager sessionManager, ILogger<SalesOrderQueryService> logger)
         : base(sessionManager, logger)
@@ -17,21 +17,28 @@ public class SalesOrderQueryService : SageReadServiceBase, ISalesOrderQueryServi
         string? dateFrom,
         string? status,
         int limit,
+        int offset = 0,
         CancellationToken cancellationToken = default)
     {
         var safeLimit = Math.Clamp(limit, 1, 100);
+        var safeOffset = Math.Max(offset, 0);
         var (divisionNo, customerNo) = ParseCustomerNumber(customerNumber);
 
         return WithSageObjectAsync("SO_SalesOrder_svc", salesOrderSvc =>
         {
-            var response = new SalesOrderSearchResponse();
+            var response = new SalesOrderSearchResponse
+            {
+                Limit = safeLimit,
+                Offset = safeOffset
+            };
             if (!MoveFirst(salesOrderSvc))
             {
                 return response;
             }
 
             var hasMore = true;
-            while (hasMore && response.SalesOrders.Count < safeLimit && response.ScannedCount < MaxScan)
+            var totalMatches = 0;
+            while (hasMore && response.ScannedCount < MaxScan)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 response.ScannedCount++;
@@ -39,13 +46,20 @@ public class SalesOrderQueryService : SageReadServiceBase, ISalesOrderQueryServi
                 var summary = ExtractSummary(salesOrderSvc);
                 if (Matches(summary, divisionNo, customerNo, poNumber, dateFrom, status))
                 {
-                    response.SalesOrders.Add(summary);
+                    totalMatches++;
+                    if (totalMatches > safeOffset && response.SalesOrders.Count < safeLimit)
+                    {
+                        response.SalesOrders.Add(summary);
+                    }
                 }
 
                 hasMore = MoveNext(salesOrderSvc);
             }
 
-            response.TotalCount = response.SalesOrders.Count;
+            response.TotalCount = totalMatches;
+            response.ReturnedCount = response.SalesOrders.Count;
+            response.HasMore = hasMore || totalMatches > safeOffset + response.SalesOrders.Count;
+            response.ScanLimitReached = hasMore && response.ScannedCount >= MaxScan;
             LogScanLimit("SO_SalesOrder_svc", response.ScannedCount, MaxScan);
             return response;
         }, cancellationToken);

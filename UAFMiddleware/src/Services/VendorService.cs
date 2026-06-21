@@ -4,7 +4,7 @@ namespace UAFMiddleware.Services;
 
 public class VendorService : SageReadServiceBase, IVendorService
 {
-    private const int MaxScan = 1000;
+    private const int MaxScan = 25000;
 
     public VendorService(IProvideXSessionManager sessionManager, ILogger<VendorService> logger)
         : base(sessionManager, logger)
@@ -30,19 +30,26 @@ public class VendorService : SageReadServiceBase, IVendorService
         string? city,
         string? state,
         int limit,
+        int offset = 0,
         CancellationToken cancellationToken = default)
     {
         var safeLimit = Math.Clamp(limit, 1, 100);
+        var safeOffset = Math.Max(offset, 0);
         return WithSageObjectAsync("AP_Vendor_svc", vendorSvc =>
         {
-            var response = new VendorSearchResponse();
+            var response = new VendorSearchResponse
+            {
+                Limit = safeLimit,
+                Offset = safeOffset
+            };
             if (!MoveFirst(vendorSvc))
             {
                 return response;
             }
 
             var hasMore = true;
-            while (hasMore && response.Vendors.Count < safeLimit && response.ScannedCount < MaxScan)
+            var totalMatches = 0;
+            while (hasMore && response.ScannedCount < MaxScan)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 response.ScannedCount++;
@@ -50,13 +57,20 @@ public class VendorService : SageReadServiceBase, IVendorService
                 var vendor = ExtractVendor(vendorSvc);
                 if (MatchesVendor(vendor, query, city, state))
                 {
-                    response.Vendors.Add(vendor);
+                    totalMatches++;
+                    if (totalMatches > safeOffset && response.Vendors.Count < safeLimit)
+                    {
+                        response.Vendors.Add(vendor);
+                    }
                 }
 
                 hasMore = MoveNext(vendorSvc);
             }
 
-            response.TotalCount = response.Vendors.Count;
+            response.TotalCount = totalMatches;
+            response.ReturnedCount = response.Vendors.Count;
+            response.HasMore = hasMore || totalMatches > safeOffset + response.Vendors.Count;
+            response.ScanLimitReached = hasMore && response.ScannedCount >= MaxScan;
             LogScanLimit("AP_Vendor_svc", response.ScannedCount, MaxScan);
             return response;
         }, cancellationToken);
