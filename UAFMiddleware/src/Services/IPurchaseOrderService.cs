@@ -11,5 +11,6 @@ public interface IPurchaseOrderService
         string? status,
         string? dateFrom,
         int limit,
+        int offset = 0,
         CancellationToken cancellationToken = default);
 }

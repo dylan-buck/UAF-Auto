@@ -39,7 +39,7 @@ export const sageToolDefinitions: SageToolDefinition[] = [
     name: "sage_search_items",
     title: "Search Sage Items",
     description: "Search Sage inventory items by text query and optional product line.",
-    inputSchema: { q: optionalString, productLine: optionalString, limit: optionalLimit },
+    inputSchema: { q: optionalString, productLine: optionalString, limit: optionalLimit, offset: optionalOffset },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     enabled: () => true,
     handler: (client, input) => client.searchItems(input as Query)
@@ -176,7 +176,8 @@ export const sageToolDefinitions: SageToolDefinition[] = [
       poNumber: optionalString,
       dateFrom: optionalString,
       status: optionalString,
-      limit: optionalLimit
+      limit: optionalLimit,
+      offset: optionalOffset
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     enabled: () => true,
@@ -195,7 +196,7 @@ export const sageToolDefinitions: SageToolDefinition[] = [
     name: "sage_search_vendors",
     title: "Search Sage Vendors",
     description: "Search Sage vendors by text, city, or state.",
-    inputSchema: { q: optionalString, city: optionalString, state: optionalString, limit: optionalLimit },
+    inputSchema: { q: optionalString, city: optionalString, state: optionalString, limit: optionalLimit, offset: optionalOffset },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     enabled: () => true,
     handler: (client, input) => client.searchVendors(input as Query)
@@ -218,7 +219,8 @@ export const sageToolDefinitions: SageToolDefinition[] = [
       orderType: optionalString,
       status: optionalString,
       dateFrom: optionalString,
-      limit: optionalLimit
+      limit: optionalLimit,
+      offset: optionalOffset
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     enabled: () => true,
@@ -228,7 +230,7 @@ export const sageToolDefinitions: SageToolDefinition[] = [
     name: "sage_search_purchase_order_quotes",
     title: "Search Sage Purchase Order Quotes",
     description: "Search Sage purchase order quotes.",
-    inputSchema: { vendorNumber: optionalString, status: optionalString, dateFrom: optionalString, limit: optionalLimit },
+    inputSchema: { vendorNumber: optionalString, status: optionalString, dateFrom: optionalString, limit: optionalLimit, offset: optionalOffset },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     enabled: () => true,
     handler: (client, input) => client.searchPurchaseOrderQuotes(input as Query)

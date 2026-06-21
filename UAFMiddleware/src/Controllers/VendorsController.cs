@@ -23,9 +23,16 @@ public class VendorsController : ControllerBase
         [FromQuery] string? city,
         [FromQuery] string? state,
         [FromQuery] int limit = 20,
+        [FromQuery] int offset = 0,
         CancellationToken cancellationToken = default)
     {
-        return Ok(await _vendorService.SearchVendorsAsync(q, city, state, Math.Min(limit, 100), cancellationToken));
+        return Ok(await _vendorService.SearchVendorsAsync(
+            q,
+            city,
+            state,
+            Math.Clamp(limit, 1, 100),
+            Math.Max(offset, 0),
+            cancellationToken));
     }
 
     [HttpGet("{vendorNumber}")]

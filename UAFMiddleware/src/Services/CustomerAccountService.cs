@@ -4,7 +4,8 @@ namespace UAFMiddleware.Services;
 
 public class CustomerAccountService : SageReadServiceBase, ICustomerAccountService
 {
-    private const int MaxInvoiceScan = 1500;
+    private const int MaxInvoiceScan = 25000;
+    private const int MaxPositionedInvoiceScan = 5000;
     private readonly ICustomerService _customerService;
 
     public CustomerAccountService(
@@ -60,58 +61,51 @@ public class CustomerAccountService : SageReadServiceBase, ICustomerAccountServi
 
         await WithSageObjectAsync("AR_OpenInvoice_Svc", openInvoiceSvc =>
         {
-            if (!MoveFirst(openInvoiceSvc))
+            var safeLimit = Math.Clamp(openInvoiceLimit, 0, 100);
+            decimal balance = 0;
+
+            bool positioned = TryPositionToOpenInvoices(openInvoiceSvc, divisionNo, customerNo);
+            if (!positioned && !MoveFirst(openInvoiceSvc))
             {
                 return true;
             }
 
             var scanned = 0;
             var hasMore = true;
-            var safeLimit = Math.Clamp(openInvoiceLimit, 0, 100);
-            decimal balance = 0;
+            var scanLimit = positioned ? MaxPositionedInvoiceScan : MaxInvoiceScan;
 
-            while (hasMore && scanned < MaxInvoiceScan)
+            while (hasMore && scanned < scanLimit)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 scanned++;
 
                 var recordDiv = GetStringValue(openInvoiceSvc, "ARDivisionNo$").Trim();
                 var recordCustomer = GetStringValue(openInvoiceSvc, "CustomerNo$").Trim();
-                if (recordDiv == divisionNo && recordCustomer == customerNo)
+
+                if (positioned &&
+                    (!recordDiv.Equals(divisionNo, StringComparison.OrdinalIgnoreCase) ||
+                     !recordCustomer.Equals(customerNo, StringComparison.OrdinalIgnoreCase)))
                 {
-                    var invoiceBalance = FirstDecimal(
-                        GetDecimalValue(openInvoiceSvc, "Balance"),
-                        GetDecimalValue(openInvoiceSvc, "InvoiceBalance"),
-                        GetDecimalValue(openInvoiceSvc, "AmountDue"));
+                    break;
+                }
 
-                    response.OpenInvoiceCount++;
-                    if (invoiceBalance.HasValue)
-                    {
-                        balance += invoiceBalance.Value;
-                    }
-
-                    if (response.OpenInvoices.Count < safeLimit)
-                    {
-                        response.OpenInvoices.Add(new OpenInvoiceSummaryDto
-                        {
-                            InvoiceNo = FirstNonEmpty(
-                                GetStringValue(openInvoiceSvc, "InvoiceNo$"),
-                                GetStringValue(openInvoiceSvc, "InvoiceNumber$")),
-                            InvoiceDate = GetStringValue(openInvoiceSvc, "InvoiceDate$"),
-                            DueDate = GetStringValue(openInvoiceSvc, "DueDate$"),
-                            Balance = invoiceBalance,
-                            InvoiceAmount = FirstDecimal(
-                                GetDecimalValue(openInvoiceSvc, "InvoiceAmt"),
-                                GetDecimalValue(openInvoiceSvc, "InvoiceAmount"))
-                        });
-                    }
+                if (recordDiv.Equals(divisionNo, StringComparison.OrdinalIgnoreCase) &&
+                    recordCustomer.Equals(customerNo, StringComparison.OrdinalIgnoreCase))
+                {
+                    AddOpenInvoice(openInvoiceSvc, response, safeLimit, ref balance);
                 }
 
                 hasMore = MoveNext(openInvoiceSvc);
             }
 
             response.OpenInvoiceBalance = balance;
-            LogScanLimit("AR_OpenInvoice_Svc", scanned, MaxInvoiceScan);
+            response.OpenInvoiceReturnedCount = response.OpenInvoices.Count;
+            response.OpenInvoiceScannedCount = scanned;
+            response.OpenInvoiceHasMore = positioned
+                ? hasMore && scanned >= scanLimit
+                : hasMore || response.OpenInvoiceCount > response.OpenInvoices.Count;
+            response.OpenInvoiceScanLimitReached = hasMore && scanned >= scanLimit;
+            LogScanLimit("AR_OpenInvoice_Svc", scanned, scanLimit);
             return true;
         }, cancellationToken);
 
@@ -126,6 +120,66 @@ public class CustomerAccountService : SageReadServiceBase, ICustomerAccountServi
         }
 
         return ("00", customerNumber);
+    }
+
+    private static bool TryPositionToOpenInvoices(dynamic openInvoiceSvc, string divisionNo, string customerNo)
+    {
+        try
+        {
+            openInvoiceSvc.nSetKeyValue("ARDivisionNo$", divisionNo);
+            openInvoiceSvc.nSetKeyValue("CustomerNo$", customerNo);
+            if (TryFind(openInvoiceSvc, ("ARDivisionNo$", divisionNo), ("CustomerNo$", customerNo)) &&
+                IsCurrentOpenInvoiceCustomer(openInvoiceSvc, divisionNo, customerNo))
+            {
+                return true;
+            }
+        }
+        catch
+        {
+            // Fall through to broad scan.
+        }
+
+        return false;
+    }
+
+    private static bool IsCurrentOpenInvoiceCustomer(dynamic openInvoiceSvc, string divisionNo, string customerNo)
+    {
+        return GetStringValue(openInvoiceSvc, "ARDivisionNo$").Trim().Equals(divisionNo, StringComparison.OrdinalIgnoreCase) &&
+               GetStringValue(openInvoiceSvc, "CustomerNo$").Trim().Equals(customerNo, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AddOpenInvoice(
+        dynamic openInvoiceSvc,
+        CustomerAccountSummaryResponse response,
+        int safeLimit,
+        ref decimal balance)
+    {
+        var invoiceBalance = FirstDecimal(
+            GetDecimalValue(openInvoiceSvc, "Balance"),
+            GetDecimalValue(openInvoiceSvc, "InvoiceBalance"),
+            GetDecimalValue(openInvoiceSvc, "AmountDue"));
+
+        response.OpenInvoiceCount++;
+        if (invoiceBalance.HasValue)
+        {
+            balance += invoiceBalance.Value;
+        }
+
+        if (response.OpenInvoices.Count < safeLimit)
+        {
+            response.OpenInvoices.Add(new OpenInvoiceSummaryDto
+            {
+                InvoiceNo = FirstNonEmpty(
+                    GetStringValue(openInvoiceSvc, "InvoiceNo$"),
+                    GetStringValue(openInvoiceSvc, "InvoiceNumber$")),
+                InvoiceDate = GetStringValue(openInvoiceSvc, "InvoiceDate$"),
+                DueDate = GetStringValue(openInvoiceSvc, "DueDate$"),
+                Balance = invoiceBalance,
+                InvoiceAmount = FirstDecimal(
+                    GetDecimalValue(openInvoiceSvc, "InvoiceAmt"),
+                    GetDecimalValue(openInvoiceSvc, "InvoiceAmount"))
+            });
+        }
     }
 
     private static string FirstNonEmpty(params string?[] values)
