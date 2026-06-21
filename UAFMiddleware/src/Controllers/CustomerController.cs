@@ -32,6 +32,7 @@ public class CustomerController : ControllerBase
     /// <param name="state">State (exact match)</param>
     /// <param name="phone">Phone number</param>
     /// <param name="limit">Maximum results (default 20)</param>
+    /// <param name="offset">Number of matching results to skip for paging</param>
     [HttpGet("search")]
     [RequireApiScope(ApiScopes.Read)]
     public async Task<ActionResult<CustomerSearchResponse>> SearchCustomers(
@@ -41,6 +42,7 @@ public class CustomerController : ControllerBase
         [FromQuery] string? state,
         [FromQuery] string? phone,
         [FromQuery] int limit = 20,
+        [FromQuery] int offset = 0,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
@@ -68,7 +70,8 @@ public class CustomerController : ControllerBase
                 City = city,
                 State = state,
                 Phone = phone,
-                Limit = Math.Min(limit, 100) // Cap at 100
+                Limit = Math.Clamp(limit, 1, 100),
+                Offset = Math.Max(offset, 0)
             };
 
             var result = await _customerService.SearchCustomersAsync(request, cancellationToken);

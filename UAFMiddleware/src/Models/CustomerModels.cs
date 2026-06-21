@@ -93,6 +93,11 @@ public class CustomerSearchRequest
     /// Maximum results to return (default 20)
     /// </summary>
     public int Limit { get; set; } = 20;
+
+    /// <summary>
+    /// Number of matching customers to skip for paging.
+    /// </summary>
+    public int Offset { get; set; } = 0;
 }
 
 /// <summary>
@@ -102,6 +107,12 @@ public class CustomerSearchResponse
 {
     public List<CustomerDto> Customers { get; set; } = new();
     public int TotalCount { get; set; }
+    public int ReturnedCount { get; set; }
+    public int Limit { get; set; }
+    public int Offset { get; set; }
+    public bool HasMore { get; set; }
+    public int ScannedCount { get; set; }
+    public bool ScanLimitReached { get; set; }
     public string? SearchCriteria { get; set; }
 }
 
@@ -131,4 +142,3 @@ public class ValidateShipToResponse
     public CustomerShipToDto? MatchedAddress { get; set; }
     public List<string>? Differences { get; set; }
 }
-
