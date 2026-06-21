@@ -5,6 +5,9 @@ namespace UAFMiddleware.Services;
 
 public class CustomerService : ICustomerService
 {
+    private const int MaxCustomerSearchRecordsToScan = 25000;
+    private const int MaxExactCustomerFallbackScan = 25000;
+
     private readonly IProvideXSessionManager _sessionManager;
     private readonly ILogger<CustomerService> _logger;
 
@@ -64,9 +67,11 @@ public class CustomerService : ICustomerService
 
             _logger.LogDebug("Filter: {Filter}", filterParts);
 
-            // Try to use nFind with filter, or fall back to iterating
-            int foundCount = 0;
             bool hasMore = true;
+            int totalMatches = 0;
+            int recordsScanned = 0;
+            int limit = Math.Clamp(request.Limit, 1, 100);
+            int offset = Math.Max(0, request.Offset);
             
             // Move to first record
             object firstResult = customerSvc.nMoveFirst();
@@ -79,16 +84,19 @@ public class CustomerService : ICustomerService
                 {
                     Customers = customers,
                     TotalCount = 0,
+                    ReturnedCount = 0,
+                    Limit = limit,
+                    Offset = offset,
+                    HasMore = false,
+                    ScannedCount = 0,
+                    ScanLimitReached = false,
                     SearchCriteria = BuildSearchCriteria(request)
                 };
             }
 
-            // Iterate through customers and filter in code
-            // Limit total records scanned to prevent hanging on large databases
-            const int maxRecordsToScan = 500;
-            int recordsScanned = 0;
-            
-            while (hasMore && foundCount < request.Limit && recordsScanned < maxRecordsToScan)
+            // Iterate through customers and filter in code. This intentionally scans
+            // past the returned page so a broad search can report paging metadata.
+            while (hasMore && recordsScanned < MaxCustomerSearchRecordsToScan)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 recordsScanned++;
@@ -96,8 +104,8 @@ public class CustomerService : ICustomerService
                 // Log progress every 100 records
                 if (recordsScanned % 100 == 0)
                 {
-                    _logger.LogDebug("Scanned {Scanned} records, found {Found} matches so far", 
-                        recordsScanned, foundCount);
+                    _logger.LogDebug("Scanned {Scanned} records, found {Found} matches so far",
+                        recordsScanned, totalMatches);
                 }
                 
                 // Get current record values
@@ -141,10 +149,14 @@ public class CustomerService : ICustomerService
 
                 if (matches)
                 {
-                    _logger.LogDebug("Found match: {CustomerName}", custName);
-                    var customer = ExtractCustomerFromCurrentRecord(customerSvc);
-                    customers.Add(customer);
-                    foundCount++;
+                    totalMatches++;
+
+                    if (totalMatches > offset && customers.Count < limit)
+                    {
+                        _logger.LogDebug("Found match: {CustomerName}", custName);
+                        var customer = ExtractCustomerFromCurrentRecord(customerSvc);
+                        customers.Add(customer);
+                    }
                 }
 
                 // Move to next record
@@ -152,19 +164,30 @@ public class CustomerService : ICustomerService
                 int nextMoveResult = nextResult != null ? Convert.ToInt32(nextResult) : 0;
                 hasMore = nextMoveResult == 1;
             }
-            
-            if (recordsScanned >= maxRecordsToScan && foundCount < request.Limit)
+
+            bool scanLimitReached = hasMore && recordsScanned >= MaxCustomerSearchRecordsToScan;
+            if (scanLimitReached)
             {
-                _logger.LogWarning("Stopped scanning after {MaxRecords} records. Found {Found} matches. " +
-                    "Use more specific search criteria for better results.", maxRecordsToScan, foundCount);
+                _logger.LogWarning("Stopped scanning after {MaxRecords} customer records. Found {Found} matches. " +
+                    "Use more specific search criteria for better results.", MaxCustomerSearchRecordsToScan, totalMatches);
             }
 
-            _logger.LogInformation("Found {Count} customers matching criteria", customers.Count);
+            bool hasMoreMatches = scanLimitReached || totalMatches > offset + customers.Count;
+
+            _logger.LogInformation(
+                "Customer search returned {Returned} of {Total} matching customers after scanning {Scanned} records",
+                customers.Count, totalMatches, recordsScanned);
             
             return new CustomerSearchResponse
             {
                 Customers = customers,
-                TotalCount = customers.Count,
+                TotalCount = totalMatches,
+                ReturnedCount = customers.Count,
+                Limit = limit,
+                Offset = offset,
+                HasMore = hasMoreMatches,
+                ScannedCount = recordsScanned,
+                ScanLimitReached = scanLimitReached,
                 SearchCriteria = BuildSearchCriteria(request)
             };
         }
@@ -207,12 +230,12 @@ public class CustomerService : ICustomerService
     {
         // Parse customer number format "01-D3375"
         string divisionNo = "01";
-        string customerNo = customerNumber;
+        string customerNo = customerNumber.Trim();
         
-        if (customerNumber.Length > 3 && customerNumber[2] == '-')
+        if (customerNo.Length > 3 && customerNo[2] == '-')
         {
-            divisionNo = customerNumber.Substring(0, 2);
-            customerNo = customerNumber.Substring(3);
+            divisionNo = customerNo.Substring(0, 2);
+            customerNo = customerNo.Substring(3);
         }
 
         return await GetCustomerAsync(divisionNo, customerNo, cancellationToken);
@@ -230,54 +253,62 @@ public class CustomerService : ICustomerService
         try
         {
             session = await _sessionManager.GetSessionAsync(cancellationToken);
+            arDivisionNo = arDivisionNo.Trim();
+            customerNo = customerNo.Trim().ToUpperInvariant();
             _logger.LogInformation("Getting customer: {Division}-{CustomerNo}", arDivisionNo, customerNo);
 
-            customerSvc = session.ProvideXScript.NewObject("AR_Customer_svc", session.Session);
+            customerSvc = session.ProvideXScript.NewObject("AR_Customer_bus", session.Session);
 
             if (customerSvc == null)
             {
                 sessionCorrupted = true;
-                throw new InvalidOperationException("Failed to create AR_Customer_svc object");
+                throw new InvalidOperationException("Failed to create AR_Customer_bus object");
             }
 
-            // Find the specific customer - _svc objects use nFind or iterate
-            // First move to first record
-            object firstResult = customerSvc.nMoveFirst();
-            if (firstResult == null || Convert.ToInt32(firstResult) == 0)
+            bool found = TryPositionToCustomer(customerSvc, arDivisionNo, customerNo);
+            if (!found)
             {
-                _logger.LogWarning("No customers in database or error");
-                return null;
-            }
-            
-            // Iterate to find the specific customer
-            bool found = false;
-            bool hasMore = true;
-            int scanned = 0;
-            
-            while (hasMore && scanned < 1000)
-            {
-                scanned++;
-                string recDiv = GetStringValue(customerSvc, "ARDivisionNo$");
-                string recCust = GetStringValue(customerSvc, "CustomerNo$");
-                
-                if (recDiv == arDivisionNo && recCust == customerNo)
+                _logger.LogWarning(
+                    "Keyed customer lookup failed for {Division}-{CustomerNo}; falling back to scan",
+                    arDivisionNo,
+                    customerNo);
+
+                if (customerSvc != null && Marshal.IsComObject(customerSvc))
                 {
-                    found = true;
-                    break;
+                    Marshal.ReleaseComObject(customerSvc);
                 }
-                
-                object nextResult = customerSvc.nMoveNext();
-                hasMore = nextResult != null && Convert.ToInt32(nextResult) == 1;
+
+                customerSvc = session.ProvideXScript.NewObject("AR_Customer_svc", session.Session);
+                if (customerSvc == null)
+                {
+                    sessionCorrupted = true;
+                    throw new InvalidOperationException("Failed to create AR_Customer_svc object");
+                }
+
+                int scanned;
+                found = TryFindCustomerByScan(
+                    customerSvc,
+                    arDivisionNo,
+                    customerNo,
+                    MaxExactCustomerFallbackScan,
+                    cancellationToken,
+                    out scanned);
+
+                _logger.LogInformation(
+                    "Customer fallback scan result for {Division}-{CustomerNo}: Found={Found}, Scanned={Scanned}",
+                    arDivisionNo,
+                    customerNo,
+                    found,
+                    scanned);
             }
             
             if (!found)
             {
-                _logger.LogWarning("Customer not found after scanning {Scanned} records: {Division}-{CustomerNo}", 
-                    scanned, arDivisionNo, customerNo);
+                _logger.LogWarning("Customer not found: {Division}-{CustomerNo}", arDivisionNo, customerNo);
                 return null;
             }
             
-            _logger.LogDebug("Found customer after scanning {Scanned} records", scanned);
+            _logger.LogDebug("Found customer by Sage key: {Division}-{CustomerNo}", arDivisionNo, customerNo);
 
             CustomerDto customer = ExtractCustomerFromCurrentRecord(customerSvc);
             
@@ -636,6 +667,100 @@ public class CustomerService : ICustomerService
             return "";
         }
     }
+
+    private bool TryPositionToCustomer(dynamic customerObj, string arDivisionNo, string customerNo)
+    {
+        try
+        {
+            customerObj.nSetKeyValue("ARDivisionNo$", arDivisionNo);
+            customerObj.nSetKeyValue("CustomerNo$", customerNo);
+
+            if (ConvertComResult(customerObj.nFind()) == 1 && IsCurrentCustomer(customerObj, arDivisionNo, customerNo))
+            {
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Customer nFind failed for {Division}-{CustomerNo}", arDivisionNo, customerNo);
+        }
+
+        try
+        {
+            if (ConvertComResult(customerObj.nSetKey()) == 1 && IsCurrentCustomer(customerObj, arDivisionNo, customerNo))
+            {
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Customer nSetKey fallback failed for {Division}-{CustomerNo}", arDivisionNo, customerNo);
+        }
+
+        return false;
+    }
+
+    private bool TryFindCustomerByScan(
+        dynamic customerSvc,
+        string arDivisionNo,
+        string customerNo,
+        int maxRecordsToScan,
+        CancellationToken cancellationToken,
+        out int scanned)
+    {
+        scanned = 0;
+
+        object firstResult = customerSvc.nMoveFirst();
+        if (firstResult == null || ConvertComResult(firstResult) == 0)
+        {
+            return false;
+        }
+
+        bool hasMore = true;
+        while (hasMore && scanned < maxRecordsToScan)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            scanned++;
+
+            if (IsCurrentCustomer(customerSvc, arDivisionNo, customerNo))
+            {
+                return true;
+            }
+
+            object nextResult = customerSvc.nMoveNext();
+            hasMore = nextResult != null && ConvertComResult(nextResult) == 1;
+        }
+
+        if (hasMore)
+        {
+            _logger.LogWarning(
+                "Stopped exact customer fallback scan after {MaxRecords} records for {Division}-{CustomerNo}",
+                maxRecordsToScan,
+                arDivisionNo,
+                customerNo);
+        }
+
+        return false;
+    }
+
+    private bool IsCurrentCustomer(dynamic customerObj, string arDivisionNo, string customerNo)
+    {
+        string recDiv = GetStringValue(customerObj, "ARDivisionNo$").Trim();
+        string recCust = GetStringValue(customerObj, "CustomerNo$").Trim();
+
+        return string.Equals(recDiv, arDivisionNo, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(recCust, customerNo, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ConvertComResult(object? result)
+    {
+        if (result == null || string.IsNullOrWhiteSpace(result.ToString()))
+        {
+            return 0;
+        }
+
+        return Convert.ToInt32(result);
+    }
     
     private bool IsYesValue(string? value)
     {
@@ -665,6 +790,8 @@ public class CustomerService : ICustomerService
         if (!string.IsNullOrEmpty(request.State)) parts.Add($"state='{request.State}'");
         if (!string.IsNullOrEmpty(request.Phone)) parts.Add($"phone='{request.Phone}'");
         if (!string.IsNullOrEmpty(request.Address)) parts.Add($"address='{request.Address}'");
+        if (request.Offset > 0) parts.Add($"offset={request.Offset}");
+        parts.Add($"limit={Math.Clamp(request.Limit, 1, 100)}");
         return string.Join(", ", parts);
     }
 

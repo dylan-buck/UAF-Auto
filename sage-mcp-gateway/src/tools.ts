@@ -23,6 +23,7 @@ export interface SageToolDefinition {
 
 const optionalString = z.string().min(1).optional();
 const optionalLimit = z.number().int().min(1).max(100).optional();
+const optionalOffset = z.number().int().min(0).optional();
 
 export const sageToolDefinitions: SageToolDefinition[] = [
   {
@@ -118,7 +119,8 @@ export const sageToolDefinitions: SageToolDefinition[] = [
       city: optionalString,
       state: optionalString,
       phone: optionalString,
-      limit: optionalLimit
+      limit: optionalLimit,
+      offset: optionalOffset
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     enabled: () => true,
