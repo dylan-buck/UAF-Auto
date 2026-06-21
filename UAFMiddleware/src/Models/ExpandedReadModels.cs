@@ -18,7 +18,12 @@ public class ItemSearchResponse
 {
     public List<ItemDto> Items { get; set; } = new();
     public int TotalCount { get; set; }
+    public int ReturnedCount { get; set; }
+    public int Limit { get; set; }
+    public int Offset { get; set; }
+    public bool HasMore { get; set; }
     public int ScannedCount { get; set; }
+    public bool ScanLimitReached { get; set; }
 }
 
 public class ItemAvailabilityRequest
@@ -72,7 +77,12 @@ public class SalesOrderSearchResponse
 {
     public List<SalesOrderSummaryDto> SalesOrders { get; set; } = new();
     public int TotalCount { get; set; }
+    public int ReturnedCount { get; set; }
+    public int Limit { get; set; }
+    public int Offset { get; set; }
+    public bool HasMore { get; set; }
     public int ScannedCount { get; set; }
+    public bool ScanLimitReached { get; set; }
 }
 
 public class SalesOrderSummaryDto
@@ -99,6 +109,10 @@ public class CustomerAccountSummaryResponse
     public decimal? LastInvoiceAmount { get; set; }
     public int OpenInvoiceCount { get; set; }
     public decimal? OpenInvoiceBalance { get; set; }
+    public int OpenInvoiceReturnedCount { get; set; }
+    public bool OpenInvoiceHasMore { get; set; }
+    public int OpenInvoiceScannedCount { get; set; }
+    public bool OpenInvoiceScanLimitReached { get; set; }
     public List<OpenInvoiceSummaryDto> OpenInvoices { get; set; } = new();
 }
 
@@ -131,7 +145,12 @@ public class VendorSearchResponse
 {
     public List<VendorDto> Vendors { get; set; } = new();
     public int TotalCount { get; set; }
+    public int ReturnedCount { get; set; }
+    public int Limit { get; set; }
+    public int Offset { get; set; }
+    public bool HasMore { get; set; }
     public int ScannedCount { get; set; }
+    public bool ScanLimitReached { get; set; }
 }
 
 public class PurchaseOrderDto
@@ -150,7 +169,12 @@ public class PurchaseOrderSearchResponse
 {
     public List<PurchaseOrderDto> PurchaseOrders { get; set; } = new();
     public int TotalCount { get; set; }
+    public int ReturnedCount { get; set; }
+    public int Limit { get; set; }
+    public int Offset { get; set; }
+    public bool HasMore { get; set; }
     public int ScannedCount { get; set; }
+    public bool ScanLimitReached { get; set; }
 }
 
 public class ReferenceDataResponse

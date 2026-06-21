@@ -24,6 +24,7 @@ public class PurchaseOrdersController : ControllerBase
         [FromQuery] string? status,
         [FromQuery] string? dateFrom,
         [FromQuery] int limit = 20,
+        [FromQuery] int offset = 0,
         CancellationToken cancellationToken = default)
     {
         return Ok(await _purchaseOrderService.SearchPurchaseOrdersAsync(
@@ -31,7 +32,8 @@ public class PurchaseOrdersController : ControllerBase
             orderType,
             status,
             dateFrom,
-            Math.Min(limit, 100),
+            Math.Clamp(limit, 1, 100),
+            Math.Max(offset, 0),
             cancellationToken));
     }
 
@@ -41,6 +43,7 @@ public class PurchaseOrdersController : ControllerBase
         [FromQuery] string? status,
         [FromQuery] string? dateFrom,
         [FromQuery] int limit = 20,
+        [FromQuery] int offset = 0,
         CancellationToken cancellationToken = default)
     {
         return Ok(await _purchaseOrderService.SearchPurchaseOrdersAsync(
@@ -48,7 +51,8 @@ public class PurchaseOrdersController : ControllerBase
             "Q",
             status,
             dateFrom,
-            Math.Min(limit, 100),
+            Math.Clamp(limit, 1, 100),
+            Math.Max(offset, 0),
             cancellationToken));
     }
 

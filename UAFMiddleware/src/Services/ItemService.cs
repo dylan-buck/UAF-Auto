@@ -4,7 +4,9 @@ namespace UAFMiddleware.Services;
 
 public class ItemService : SageReadServiceBase, IItemService
 {
-    private const int MaxScan = 1000;
+    private const int MaxSearchScan = 25000;
+    private const int MaxAvailabilityScan = 25000;
+    private const int MaxRelatedScan = 25000;
     private readonly ILogger<ItemService> _logger;
 
     public ItemService(IProvideXSessionManager sessionManager, ILogger<ItemService> logger)
@@ -31,22 +33,29 @@ public class ItemService : SageReadServiceBase, IItemService
         string? query,
         string? productLine,
         int limit,
+        int offset = 0,
         CancellationToken cancellationToken = default)
     {
         var safeLimit = Math.Clamp(limit, 1, 100);
+        var safeOffset = Math.Max(offset, 0);
         var normalizedQuery = query?.Trim();
         var normalizedProductLine = productLine?.Trim();
 
         return WithSageObjectAsync("CI_ItemCode_svc", itemSvc =>
         {
-            var response = new ItemSearchResponse();
+            var response = new ItemSearchResponse
+            {
+                Limit = safeLimit,
+                Offset = safeOffset
+            };
             if (!MoveFirst(itemSvc))
             {
                 return response;
             }
 
             var hasMore = true;
-            while (hasMore && response.Items.Count < safeLimit && response.ScannedCount < MaxScan)
+            var totalMatches = 0;
+            while (hasMore && response.ScannedCount < MaxSearchScan)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 response.ScannedCount++;
@@ -54,14 +63,21 @@ public class ItemService : SageReadServiceBase, IItemService
                 var item = ExtractItem(itemSvc);
                 if (MatchesItem(item, normalizedQuery, normalizedProductLine))
                 {
-                    response.Items.Add(item);
+                    totalMatches++;
+                    if (totalMatches > safeOffset && response.Items.Count < safeLimit)
+                    {
+                        response.Items.Add(item);
+                    }
                 }
 
                 hasMore = MoveNext(itemSvc);
             }
 
-            response.TotalCount = response.Items.Count;
-            LogScanLimit("CI_ItemCode_svc", response.ScannedCount, MaxScan);
+            response.TotalCount = totalMatches;
+            response.ReturnedCount = response.Items.Count;
+            response.HasMore = hasMore || totalMatches > safeOffset + response.Items.Count;
+            response.ScanLimitReached = hasMore && response.ScannedCount >= MaxSearchScan;
+            LogScanLimit("CI_ItemCode_svc", response.ScannedCount, MaxSearchScan);
             return response;
         }, cancellationToken);
     }
@@ -88,11 +104,15 @@ public class ItemService : SageReadServiceBase, IItemService
                 cancellationToken.ThrowIfCancellationRequested();
                 var itemResult = new ItemAvailabilityDto { ItemCode = requested.ItemCode };
 
-                if (MoveFirst(itemWhseSvc))
+                if (TryPositionToItemWarehouse(itemWhseSvc, requested.ItemCode, requested.WarehouseCode))
+                {
+                    ReadPositionedWarehouseAvailability(itemWhseSvc, requested, itemResult, cancellationToken);
+                }
+                else if (MoveFirst(itemWhseSvc))
                 {
                     var scanned = 0;
                     var hasMore = true;
-                    while (hasMore && scanned < MaxScan)
+                    while (hasMore && scanned < MaxAvailabilityScan)
                     {
                         scanned++;
                         var recordItem = GetStringValue(itemWhseSvc, "ItemCode$").Trim();
@@ -108,7 +128,7 @@ public class ItemService : SageReadServiceBase, IItemService
                         hasMore = MoveNext(itemWhseSvc);
                     }
 
-                    LogScanLimit("IM_ItemWarehouse_svc", scanned, MaxScan);
+                    LogScanLimit("IM_ItemWarehouse_svc", scanned, MaxAvailabilityScan);
                 }
 
                 if (itemResult.Warehouses.Count == 0 && !string.IsNullOrWhiteSpace(requested.WarehouseCode))
@@ -159,7 +179,7 @@ public class ItemService : SageReadServiceBase, IItemService
 
             var scanned = 0;
             var hasMore = true;
-            while (hasMore && scanned < MaxScan)
+            while (hasMore && scanned < MaxRelatedScan)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 scanned++;
@@ -194,9 +214,96 @@ public class ItemService : SageReadServiceBase, IItemService
                 hasMore = MoveNext(relatedSvc);
             }
 
-            LogScanLimit(objectName, scanned, MaxScan);
+            LogScanLimit(objectName, scanned, MaxRelatedScan);
             return response;
         }, cancellationToken);
+    }
+
+    private bool TryPositionToItemWarehouse(dynamic itemWhseSvc, string itemCode, string? warehouseCode)
+    {
+        try
+        {
+            itemWhseSvc.nSetKeyValue("ItemCode$", itemCode);
+            if (!string.IsNullOrWhiteSpace(warehouseCode))
+            {
+                itemWhseSvc.nSetKeyValue("WarehouseCode$", warehouseCode);
+            }
+
+            if (ConvertComResult(itemWhseSvc.nFind()) == 1 &&
+                IsCurrentItemWarehouse(itemWhseSvc, itemCode, warehouseCode))
+            {
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Item warehouse nFind failed for {ItemCode}/{Warehouse}", itemCode, warehouseCode);
+        }
+
+        try
+        {
+            if (ConvertComResult(itemWhseSvc.nSetKey()) == 1 &&
+                IsCurrentItemWarehouse(itemWhseSvc, itemCode, warehouseCode))
+            {
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Item warehouse nSetKey fallback failed for {ItemCode}/{Warehouse}", itemCode, warehouseCode);
+        }
+
+        return false;
+    }
+
+    private void ReadPositionedWarehouseAvailability(
+        dynamic itemWhseSvc,
+        ItemAvailabilityRequestLine requested,
+        ItemAvailabilityDto itemResult,
+        CancellationToken cancellationToken)
+    {
+        var hasMore = true;
+        var count = 0;
+        while (hasMore && count < 250)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            count++;
+
+            var recordItem = GetStringValue(itemWhseSvc, "ItemCode$").Trim();
+            var recordWarehouse = GetStringValue(itemWhseSvc, "WarehouseCode$").Trim();
+
+            if (!recordItem.Equals(requested.ItemCode, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(requested.WarehouseCode) ||
+                recordWarehouse.Equals(requested.WarehouseCode, StringComparison.OrdinalIgnoreCase))
+            {
+                itemResult.Warehouses.Add(ExtractWarehouseAvailability(itemWhseSvc, recordWarehouse));
+            }
+
+            if (!string.IsNullOrWhiteSpace(requested.WarehouseCode))
+            {
+                break;
+            }
+
+            hasMore = MoveNext(itemWhseSvc);
+        }
+    }
+
+    private static bool IsCurrentItemWarehouse(dynamic itemWhseSvc, string itemCode, string? warehouseCode)
+    {
+        var recordItem = GetStringValue(itemWhseSvc, "ItemCode$").Trim();
+        var recordWarehouse = GetStringValue(itemWhseSvc, "WarehouseCode$").Trim();
+
+        if (!recordItem.Equals(itemCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(warehouseCode) ||
+               recordWarehouse.Equals(warehouseCode, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ItemDto ExtractItem(dynamic item)

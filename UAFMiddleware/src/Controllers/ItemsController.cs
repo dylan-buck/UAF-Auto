@@ -24,9 +24,15 @@ public class ItemsController : ControllerBase
         [FromQuery] string? q,
         [FromQuery] string? productLine,
         [FromQuery] int limit = 20,
+        [FromQuery] int offset = 0,
         CancellationToken cancellationToken = default)
     {
-        var result = await _itemService.SearchItemsAsync(q, productLine, Math.Min(limit, 100), cancellationToken);
+        var result = await _itemService.SearchItemsAsync(
+            q,
+            productLine,
+            Math.Clamp(limit, 1, 100),
+            Math.Max(offset, 0),
+            cancellationToken);
         return Ok(result);
     }
 
